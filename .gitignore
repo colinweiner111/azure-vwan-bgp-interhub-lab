@@ -1,0 +1,13 @@
+# macOS
+.DS_Store
+# Editors
+.vscode/
+.idea/
+# Python venv just in case
+.venv/
+# Logs
+*.log
+# Shell history (not tracked, but being safe)
+*.history
+# Zip artifacts
+*.zip

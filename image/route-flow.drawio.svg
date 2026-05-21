@@ -1,0 +1,96 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE svg PUBLIC "-//W3C//DTD SVG 1.1//EN" "http://www.w3.org/Graphics/SVG/1.1/DTD/svg11.dtd">
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink"
+     version="1.1" width="520" height="620"
+     viewBox="-0.5 -0.5 520 620"
+     style="background-color: #ffffff;">
+  <defs>
+    <marker id="arrowDown" markerWidth="10" markerHeight="7" refX="10" refY="3.5" orient="auto">
+      <polygon points="0 0, 10 3.5, 0 7" fill="#323130" />
+    </marker>
+    <marker id="arrowRed" markerWidth="10" markerHeight="7" refX="10" refY="3.5" orient="auto">
+      <polygon points="0 0, 10 3.5, 0 7" fill="#e81123" />
+    </marker>
+    <linearGradient id="azBlue" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" style="stop-color:#0078d4;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#005a9e;stop-opacity:1" />
+    </linearGradient>
+  </defs>
+
+  <!-- Title -->
+  <text x="260" y="24" text-anchor="middle" font-family="Segoe UI, Arial, sans-serif" font-size="16" font-weight="bold" fill="#323130">Route Flow — How the Override Happens</text>
+
+  <!-- ===== STEP 1: Hub1 advertises spoke routes to FRR ===== -->
+  <!-- Hub1 box -->
+  <rect x="160" y="45" width="200" height="60" rx="10" ry="10" fill="#ffffff" stroke="#0078d4" stroke-width="2" />
+  <rect x="160" y="45" width="200" height="24" rx="10" ry="10" fill="url(#azBlue)" />
+  <rect x="160" y="57" width="200" height="12" fill="url(#azBlue)" />
+  <text x="260" y="64" text-anchor="middle" font-family="Segoe UI, Arial, sans-serif" font-size="11" font-weight="bold" fill="#ffffff">Hub1 VPN Gateway</text>
+  <text x="260" y="90" text-anchor="middle" font-family="Segoe UI, Arial, sans-serif" font-size="10" fill="#605e5c">Spoke routes: 10.100.0.0/16, 10.200.0.0/16</text>
+
+  <!-- Step 1 label + arrow -->
+  <rect x="10" y="120" width="130" height="36" rx="6" ry="6" fill="#f0f6ff" stroke="#0078d4" stroke-width="1" />
+  <text x="75" y="134" text-anchor="middle" font-family="Segoe UI, Arial, sans-serif" font-size="9" font-weight="bold" fill="#0078d4">Step 1</text>
+  <text x="75" y="148" text-anchor="middle" font-family="Segoe UI, Arial, sans-serif" font-size="8" fill="#0078d4">BGP advertise to FRR</text>
+  <line x1="260" y1="105" x2="260" y2="170" stroke="#323130" stroke-width="2" marker-end="url(#arrowDown)" />
+  <text x="275" y="142" font-family="Segoe UI, Arial, sans-serif" font-size="9" fill="#605e5c">AS-path: 65515</text>
+
+  <!-- ===== STEP 2: FRR learns routes ===== -->
+  <rect x="160" y="175" width="200" height="60" rx="10" ry="10" fill="#ffffff" stroke="#d83b01" stroke-width="2" />
+  <rect x="160" y="175" width="200" height="24" rx="10" ry="10" fill="#d83b01" />
+  <rect x="160" y="187" width="200" height="12" fill="#d83b01" />
+  <text x="260" y="194" text-anchor="middle" font-family="Segoe UI, Arial, sans-serif" font-size="11" font-weight="bold" fill="#ffffff">On-Prem FRR Router</text>
+  <text x="260" y="218" text-anchor="middle" font-family="Segoe UI, Arial, sans-serif" font-size="10" fill="#605e5c">Learns Hub1 spoke routes via BGP</text>
+
+  <!-- Step 2 label -->
+  <rect x="10" y="250" width="130" height="36" rx="6" ry="6" fill="#f0f6ff" stroke="#0078d4" stroke-width="1" />
+  <text x="75" y="264" text-anchor="middle" font-family="Segoe UI, Arial, sans-serif" font-size="9" font-weight="bold" fill="#0078d4">Step 2</text>
+  <text x="75" y="278" text-anchor="middle" font-family="Segoe UI, Arial, sans-serif" font-size="8" fill="#0078d4">FRR learns routes</text>
+
+  <!-- ===== STEP 3: FRR strips ASN and re-advertises ===== -->
+  <!-- AS-path exclude warning -->
+  <rect x="155" y="245" width="210" height="30" rx="6" ry="6" fill="#fff8e1" stroke="#ffc107" stroke-width="1" />
+  <text x="260" y="264" text-anchor="middle" font-family="Segoe UI, Arial, sans-serif" font-size="9" fill="#8a6914">⚠ set as-path exclude 65515</text>
+
+  <!-- Arrow from FRR down -->
+  <line x1="260" y1="275" x2="260" y2="310" stroke="#e81123" stroke-width="2" marker-end="url(#arrowRed)" />
+
+  <!-- Step 3 label -->
+  <rect x="380" y="280" width="130" height="36" rx="6" ry="6" fill="#fce4ec" stroke="#e81123" stroke-width="1" />
+  <text x="445" y="294" text-anchor="middle" font-family="Segoe UI, Arial, sans-serif" font-size="9" font-weight="bold" fill="#e81123">Step 3</text>
+  <text x="445" y="308" text-anchor="middle" font-family="Segoe UI, Arial, sans-serif" font-size="8" fill="#e81123">Re-advertise to Hub3</text>
+
+  <!-- Re-advertise box -->
+  <rect x="160" y="315" width="200" height="44" rx="8" ry="8" fill="#fce4ec" stroke="#e81123" stroke-width="1.5" />
+  <text x="260" y="334" text-anchor="middle" font-family="Segoe UI, Arial, sans-serif" font-size="10" font-weight="bold" fill="#e81123">TRANSIT_OUT route-map</text>
+  <text x="260" y="350" text-anchor="middle" font-family="Segoe UI, Arial, sans-serif" font-size="9" fill="#e81123">AS-path: 65001 (65515 stripped)</text>
+
+  <!-- Arrow down to Hub3 -->
+  <line x1="260" y1="359" x2="260" y2="400" stroke="#e81123" stroke-width="2" marker-end="url(#arrowRed)" />
+
+  <!-- ===== STEP 4: Hub3 accepts route (no loop detected) ===== -->
+  <rect x="160" y="405" width="200" height="60" rx="10" ry="10" fill="#ffffff" stroke="#0078d4" stroke-width="2" />
+  <rect x="160" y="405" width="200" height="24" rx="10" ry="10" fill="url(#azBlue)" />
+  <rect x="160" y="417" width="200" height="12" fill="url(#azBlue)" />
+  <text x="260" y="424" text-anchor="middle" font-family="Segoe UI, Arial, sans-serif" font-size="11" font-weight="bold" fill="#ffffff">Hub3 VPN Gateway</text>
+  <text x="260" y="448" text-anchor="middle" font-family="Segoe UI, Arial, sans-serif" font-size="10" fill="#605e5c">Accepts route (no loop detected)</text>
+
+  <!-- Step 4 label -->
+  <rect x="380" y="415" width="130" height="36" rx="6" ry="6" fill="#f0f6ff" stroke="#0078d4" stroke-width="1" />
+  <text x="445" y="429" text-anchor="middle" font-family="Segoe UI, Arial, sans-serif" font-size="9" font-weight="bold" fill="#0078d4">Step 4</text>
+  <text x="445" y="443" text-anchor="middle" font-family="Segoe UI, Arial, sans-serif" font-size="8" fill="#0078d4">Hub3 accepts (no loop)</text>
+
+  <!-- ===== STEP 5: Result — VPN wins ===== -->
+  <line x1="260" y1="465" x2="260" y2="500" stroke="#e81123" stroke-width="2" marker-end="url(#arrowRed)" />
+
+  <rect x="80" y="505" width="360" height="100" rx="10" ry="10" fill="#fce4ec" stroke="#e81123" stroke-width="2" />
+  <text x="260" y="528" text-anchor="middle" font-family="Segoe UI, Arial, sans-serif" font-size="12" font-weight="bold" fill="#e81123">Result: VPN Gateway Route Wins</text>
+
+  <text x="260" y="552" text-anchor="middle" font-family="Segoe UI, Arial, sans-serif" font-size="11" fill="#323130">Hub3 effective route for 10.100.0.0/16:</text>
+
+  <rect x="130" y="562" width="260" height="28" rx="6" ry="6" fill="#ffffff" stroke="#e81123" stroke-width="1" />
+  <text x="260" y="581" text-anchor="middle" font-family="Segoe UI, Consolas, monospace" font-size="11" font-weight="bold" fill="#e81123">NextHopType: VPN_S2S_Gateway</text>
+
+  <!-- Crossed-out expected path -->
+  <text x="260" y="600" text-anchor="middle" font-family="Segoe UI, Arial, sans-serif" font-size="10" fill="#a19f9d" text-decoration="line-through">Expected: NextHopType: Remote Hub</text>
+</svg>
