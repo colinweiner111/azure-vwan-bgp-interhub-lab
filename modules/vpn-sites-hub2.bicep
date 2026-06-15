@@ -6,7 +6,7 @@
 // - Site 2 (backup-hub2): Connects to frr-router-backup (Instance 1)
 //
 // Both advertise the same on-prem prefix (10.0.0.0/16).
-// Hub2 is a STANDARD peer - only receives on-prem routes (no transit).
+// Hub2 is a TRANSIT peer - FRR re-advertises between Hub1 ↔ Hub2.
 // =============================================================================
 
 param location string
@@ -17,6 +17,7 @@ param onpremPublicIp2 string     // PIP for VPN-backup site (hub2 FRR backup VM)
 param onpremBgpIp string         // Private IP 1
 param onpremBgpIp2 string        // Private IP 2
 param vpnPsk string
+param enableBackupVpn bool = false
 
 // On-prem FRR uses ASN 65001
 var onpremAsn = 65001
@@ -57,7 +58,7 @@ resource vpnSiteErPathHub2 'Microsoft.Network/vpnSites@2023-11-01' = {
 // =============================================================================
 // VPN Site 2 - VPN Backup (Secondary) for Hub2
 // =============================================================================
-resource vpnSiteVpnBackupHub2 'Microsoft.Network/vpnSites@2023-11-01' = {
+resource vpnSiteVpnBackupHub2 'Microsoft.Network/vpnSites@2023-11-01' = if (enableBackupVpn) {
   name: 'vpn-backup-site-hub2'
   location: location
   properties: {
@@ -125,7 +126,7 @@ resource vpnConnectionErPathHub2 'Microsoft.Network/vpnGateways/vpnConnections@2
 // =============================================================================
 // VPN Connection 2 - VPN Backup (Lower bandwidth = backup) for Hub2
 // =============================================================================
-resource vpnConnectionVpnBackupHub2 'Microsoft.Network/vpnGateways/vpnConnections@2023-11-01' = {
+resource vpnConnectionVpnBackupHub2 'Microsoft.Network/vpnGateways/vpnConnections@2023-11-01' = if (enableBackupVpn) {
   parent: hub2VpnGw
   name: 'conn-vpn-backup-hub2'
   dependsOn: [vpnConnectionErPathHub2]  // Ensure sequential creation
@@ -155,6 +156,6 @@ resource vpnConnectionVpnBackupHub2 'Microsoft.Network/vpnGateways/vpnConnection
 // Outputs
 // =============================================================================
 output vpnSiteErPathHub2Id string = vpnSiteErPathHub2.id
-output vpnSiteVpnBackupHub2Id string = vpnSiteVpnBackupHub2.id
+output vpnSiteVpnBackupHub2Id string = enableBackupVpn ? vpnSiteVpnBackupHub2.id : ''
 output connectionErPathHub2Id string = vpnConnectionErPathHub2.id
-output connectionVpnBackupHub2Id string = vpnConnectionVpnBackupHub2.id
+output connectionVpnBackupHub2Id string = enableBackupVpn ? vpnConnectionVpnBackupHub2.id : ''

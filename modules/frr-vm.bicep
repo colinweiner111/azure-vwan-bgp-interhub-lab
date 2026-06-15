@@ -21,15 +21,15 @@ param subnetId string
 param vpnPsk string
 
 // Hub1 vWAN VPN Gateway Instance 0
-param hubVpnGwBgpIp0 string      // e.g., 192.168.1.13
+param hubVpnGwBgpIp0 string      // e.g., 10.16.0.13
 param hubVpnGwPublicIp0 string   // Instance 0 public IP
 
 // Hub2 vWAN VPN Gateway Instance 0
-param hub2VpnGwBgpIp0 string     // e.g., 192.168.2.13
+param hub2VpnGwBgpIp0 string     // e.g., 10.32.0.13
 param hub2VpnGwPublicIp0 string  // Instance 0 public IP
 
 // Hub3 vWAN VPN Gateway Instance 0
-param hub3VpnGwBgpIp0 string     // e.g., 192.168.3.13
+param hub3VpnGwBgpIp0 string     // e.g., 10.48.0.13
 param hub3VpnGwPublicIp0 string  // Instance 0 public IP
 
 var vmName = 'frr-router'
@@ -82,8 +82,8 @@ resource nic 'Microsoft.Network/networkInterfaces@2023-11-01' = {
 // Cloud-init configuration for FRR + strongSwan (Primary - Multi-Hub Transit)
 // =============================================================================
 // 3 IPsec tunnels (one per hub) + 3 BGP peers
-// Hub1 & Hub3 = TRANSIT peers (re-advertise learned routes between them)
-// Hub2 = STANDARD peer (only on-prem prefix, no transit)
+// Hub1 & Hub2 = TRANSIT peers (re-advertise learned routes between them)
+// Hub3 = STANDARD peer (only on-prem prefix, no transit)
 //
 // format() placeholders:
 //   {0} = Hub1 VPN GW Public IP (Instance 0)
@@ -223,12 +223,12 @@ write_files:
       ip prefix-list ONPREM seq 5 permit 10.0.0.0/16
       !
       ! AZURE_LEARNED: accept spoke prefixes learned from Azure hubs
-      ip prefix-list AZURE_LEARNED seq 5 permit 10.100.0.0/16
-      ip prefix-list AZURE_LEARNED seq 10 permit 10.200.0.0/16
-      ip prefix-list AZURE_LEARNED seq 15 permit 10.110.0.0/16
-      ip prefix-list AZURE_LEARNED seq 20 permit 10.210.0.0/16
-      ip prefix-list AZURE_LEARNED seq 25 permit 10.120.0.0/16
-      ip prefix-list AZURE_LEARNED seq 30 permit 10.220.0.0/16
+      ip prefix-list AZURE_LEARNED seq 5 permit 10.16.4.0/22
+      ip prefix-list AZURE_LEARNED seq 10 permit 10.16.8.0/22
+      ip prefix-list AZURE_LEARNED seq 15 permit 10.32.4.0/22
+      ip prefix-list AZURE_LEARNED seq 20 permit 10.32.8.0/22
+      ip prefix-list AZURE_LEARNED seq 25 permit 10.48.4.0/22
+      ip prefix-list AZURE_LEARNED seq 30 permit 10.48.8.0/22
       !
       ! === Route Maps ===
       ! TRANSIT_OUT: advertise on-prem + re-advertise learned Azure routes
@@ -286,8 +286,8 @@ write_files:
       ! TRANSIT_OUT_SELECTIVE: transit re-advertisement for Hub1 spokes only.
       !   Advertises Hub1 spokes to Hub2 but NOT Hub2 spokes to Hub1.
       !   Simulates asymmetric SD-WAN or selective re-advertisement.
-      ip prefix-list HUB1_SPOKES seq 5 permit 10.100.0.0/16
-      ip prefix-list HUB1_SPOKES seq 10 permit 10.200.0.0/16
+      ip prefix-list HUB1_SPOKES seq 5 permit 10.16.4.0/22
+      ip prefix-list HUB1_SPOKES seq 10 permit 10.16.8.0/22
       route-map TRANSIT_OUT_SELECTIVE permit 10
         match ip address prefix-list ONPREM
       route-map TRANSIT_OUT_SELECTIVE permit 20
@@ -403,14 +403,12 @@ write_files:
       sysctl -w net.ipv4.conf.vti3.disable_policy=1
       sysctl -w net.ipv4.conf.vti3.rp_filter=0
       
-      # Prevent Azure table 220 (DHCP default route) from overriding
-      # VTI routes in the main table for hub BGP peer addresses
-      # Priority 100: BGP peer traffic (192.168.x.x) uses main table
-      # Priority 101: Spoke/on-prem data plane (10.x.x.x) uses main table
+      # Prevent Azure table 220 (DHCP default route) from overriding VTI routes.
+      # Hub BGP peer IPs (10.16.x, 10.32.x, 10.48.x) and spoke/on-prem data
+      # plane (10.x.x.x) all fall within 10.0.0.0/8 — one rule covers both.
       #   (without this, transit traffic is sent out eth0 instead of VTI tunnels)
       echo "Adding ip rules for BGP peer and data plane routing..."
-      ip rule add to 192.168.0.0/16 lookup main priority 100
-      ip rule add to 10.0.0.0/8 lookup main priority 101
+      ip rule add to 10.0.0.0/8 lookup main priority 100
       
       echo "Starting IPsec..."
       systemctl enable ipsec

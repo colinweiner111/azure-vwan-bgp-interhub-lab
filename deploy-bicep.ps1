@@ -6,7 +6,7 @@
 #   - Hub Routing Preference: ExpressRoute / VpnGateway / ASPath
 #   - AS-path prepending and Azure hub Route Maps
 #
-# 3 Hubs, 2 FRR VMs, 6 IPsec tunnels, BGP transit between Hub1 <-> Hub2.
+# 3 Hubs, 2 FRR VMs, 3-6 IPsec tunnels (backup optional), BGP transit between Hub1 <-> Hub2.
 #
 # REQUIREMENTS: PowerShell 7+ (run with 'pwsh', not 'powershell')
 # =============================================================================
@@ -41,8 +41,20 @@ param(
     [switch]$EnableFirewall = $false,
 
     [Parameter(Mandatory=$false)]
+    [switch]$EnableRoutingIntent = $false,
+
+    [Parameter(Mandatory=$false)]
     [switch]$EnableBastion = $false
+
+    ,
+    [Parameter(Mandatory=$false)]
+    [switch]$EnableBackupVpn = $false
 )
+
+if ($EnableRoutingIntent -and -not $EnableFirewall) {
+    Write-Host "ERROR: -EnableRoutingIntent requires -EnableFirewall" -ForegroundColor Red
+    exit 1
+}
 
 # Check PowerShell version
 if ($PSVersionTable.PSVersion.Major -lt 7) {
@@ -88,26 +100,30 @@ Write-Host "  Hub2: $Hub2Location"
 Write-Host "  Hub3: $Hub3Location"
 Write-Host "  Admin Username: $AdminUsername"
 Write-Host "  Firewall: $(if ($EnableFirewall) { $FirewallSku } else { 'Disabled' })"
+Write-Host "  Routing Intent: $(if ($EnableRoutingIntent) { 'Enabled' } else { 'Disabled' })"
 Write-Host "  Bastion: $(if ($EnableBastion) { 'Enabled' } else { 'Disabled' })"
+Write-Host "  Backup VPN: $(if ($EnableBackupVpn) { 'Enabled' } else { 'Disabled' })"
 
 Write-Host "`nLab Architecture:" -ForegroundColor Yellow
 Write-Host "  - 3 vWAN Hubs: Hub1 ($Location), Hub2 ($Hub2Location), Hub3 ($Hub3Location)"
-Write-Host "  - 2 FRR VMs, 6 IPsec tunnels (2 per hub):"
+Write-Host "  - 2 FRR VMs, $(if ($EnableBackupVpn) { '6' } else { '3' }) IPsec tunnels ($(if ($EnableBackupVpn) { '2' } else { '1' }) per hub):"
 Write-Host "    * frr-router (Primary):  Tunnels to each hub's VPN GW Instance 0"
-Write-Host "    * frr-router-backup:     Tunnels to each hub's VPN GW Instance 1"
+if ($EnableBackupVpn) {
+        Write-Host "    * frr-router-backup:     Tunnels to each hub's VPN GW Instance 1"
+}
 Write-Host "  - Both VMs advertise 10.0.0.0/16 (same on-prem prefix)"
   Write-Host "  - Transit routing: FRR re-advertises Hub1 <-> Hub2 learned routes"
-Write-Host "  - Hub2: Standard peer (on-prem only, no transit routes)"
+Write-Host "  - Hub3: Standard peer (on-prem only, no transit routes)"
 
 Write-Host "`nExpected Result:" -ForegroundColor Magenta
-Write-Host "  Hub1/Hub3: See each other's spokes via NextHopType=VpnGateway"
+Write-Host "  Hub1/Hub2: See each other's spokes via NextHopType=VpnGateway"
 Write-Host "  Hub3: Sees all spokes via NextHopType=RemoteHub (normal, no transit)"
 
 Write-Host "`nComponents to deploy:" -ForegroundColor Cyan
 Write-Host "  - Virtual WAN with 3 Hubs"
 Write-Host "  - On-Prem VNet (10.0.0.0/16) with 2 FRR/strongSwan VMs"
 Write-Host "  - 3 vWAN VPN Gateways (2 instances each)"
-Write-Host "  - 6 VPN Sites + Connections (2 per hub)"
+Write-Host "  - $(if ($EnableBackupVpn) { '6 VPN Sites + Connections (2 per hub)' } else { '3 VPN Sites + Connections (1 per hub)' })"
 Write-Host "  - 6 Spoke VNets (2 per hub)"
 Write-Host "  - 7 Workload VMs (on-prem + 2 per hub)"
 if ($EnableBastion) {
@@ -116,9 +132,13 @@ if ($EnableBastion) {
 if ($EnableFirewall) {
     Write-Host "  - Azure Firewall ($FirewallSku SKU) per hub" -ForegroundColor Yellow
 }
+if ($EnableRoutingIntent) {
+    Write-Host "  - Routing Intent policies (PrivateTraffic + Internet) on each hub" -ForegroundColor Yellow
+}
 
 $extraTime = 0
 if ($EnableFirewall) { $extraTime += 15 }
+if ($EnableRoutingIntent) { $extraTime += 5 }
 if ($EnableBastion) { $extraTime += 5 }
 $estimatedMin = 30 + $extraTime
 $estimatedMax = 45 + $extraTime
@@ -143,7 +163,9 @@ try {
                      vpnPsk=$VpnPsk `
                      firewallSku=$FirewallSku `
                      enableFirewall=$($EnableFirewall.ToString().ToLower()) `
-                     enableBastion=$($EnableBastion.ToString().ToLower())
+                     enableRoutingIntent=$($EnableRoutingIntent.ToString().ToLower()) `
+                     enableBastion=$($EnableBastion.ToString().ToLower()) `
+                     enableBackupVpn=$($EnableBackupVpn.ToString().ToLower())
     
     if ($LASTEXITCODE -eq 0) {
         Write-Host "`n✓ Deployment completed successfully!" -ForegroundColor Green
@@ -154,13 +176,15 @@ try {
         
         Write-Host "`nFRR Router VMs (on-prem VNet 10.0.0.0/16):" -ForegroundColor Yellow
         Write-Host "  frr-router (Primary):   3 tunnels to Hub1/Hub2/Hub3 Instance 0"
-        Write-Host "  frr-router-backup:      3 tunnels to Hub1/Hub2/Hub3 Instance 1"
-        Write-Host "  Both advertise 10.0.0.0/16; transit between Hub1 <-> Hub3"
+        if ($EnableBackupVpn) {
+            Write-Host "  frr-router-backup:      3 tunnels to Hub1/Hub2/Hub3 Instance 1"
+        }
+        Write-Host "  Both advertise 10.0.0.0/16; transit between Hub1 <-> Hub2"
         
         Write-Host "`nSpoke VMs:" -ForegroundColor Yellow
-        Write-Host "  Hub1: spoke1-vm (10.100.1.10), spoke2-vm (10.200.1.10)"
-        Write-Host "  Hub2: spoke3-vm (10.110.1.10), spoke4-vm (10.210.1.10)"
-        Write-Host "  Hub3: spoke5-vm (10.120.1.10), spoke6-vm (10.220.1.10)"
+        Write-Host "  Hub1: spoke1-vm (10.16.4.10), spoke2-vm (10.16.8.10)"
+        Write-Host "  Hub2: spoke3-vm (10.32.4.10), spoke4-vm (10.32.8.10)"
+        Write-Host "  Hub3: spoke5-vm (10.48.4.10), spoke6-vm (10.48.8.10)"
         
         Write-Host "`nUseful FRR Commands:" -ForegroundColor Yellow
         Write-Host "  sudo vtysh -c 'show ip bgp summary'          # BGP peer status"
@@ -171,14 +195,14 @@ try {
         Write-Host "`nVerification Steps:" -ForegroundColor Yellow
         Write-Host "1. SSH to each FRR VM and verify all 3 IPsec tunnels up"
         Write-Host "2. Verify 3 BGP sessions established per VM"
-        Write-Host "3. Check Hub1 effective routes: Hub1 spoke routes + Hub3 spoke routes via VPN GW"
-        Write-Host "4. Check Hub2 effective routes: All other hub spokes via Remote Hub (normal)"
-        Write-Host "5. Check Hub3 effective routes: Hub3 spoke routes + Hub1 spoke routes via VPN GW"
+        Write-Host "3. Check Hub1 effective routes: Hub1 spoke routes + Hub2 spoke routes via VPN GW"
+        Write-Host "4. Check Hub2 effective routes: Hub2 spoke routes + Hub1 spoke routes via VPN GW"
+        Write-Host "5. Check Hub3 effective routes: All remote spokes via Remote Hub (normal)"
         Write-Host ""
         Write-Host "Key Observation:" -ForegroundColor Magenta
-        Write-Host "  Hub1 and Hub3 should show each other's spoke prefixes with"
+        Write-Host "  Hub1 and Hub2 should show each other's spoke prefixes with"
         Write-Host "  NextHopType=VPN_S2S_Gateway instead of the expected RemoteHub."
-        Write-Host "  Hub2 should show all remote spokes via RemoteHub (correct behavior)."
+        Write-Host "  Hub3 should show all remote spokes via RemoteHub (correct behavior)."
         
         Write-Host "`nCleanup:" -ForegroundColor Yellow
         Write-Host "  az group delete -n $ResourceGroupName --yes --no-wait"

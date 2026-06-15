@@ -1,16 +1,21 @@
 // =============================================================================
-// Firewall Module - Azure Firewall with Routing Intent
+// Firewall Module - Azure Firewall (optional Routing Intent)
 // =============================================================================
 // Creates:
 // - Azure Firewall Policy (Allow All for lab purposes)
 // - Azure Firewall in the hub
 // - Log Analytics Workspace for diagnostics
-// - Routing Intent (forces traffic through firewall)
+// - Routing Intent (optional: force private/internet traffic through firewall)
 // =============================================================================
 
 param location string
 param firewallSku string
 param hubName string
+param enableRoutingIntent bool = false
+
+resource hub 'Microsoft.Network/virtualHubs@2023-11-01' existing = {
+  name: hubName
+}
 
 // =============================================================================
 // Firewall Policy
@@ -87,6 +92,32 @@ resource firewall 'Microsoft.Network/azureFirewalls@2023-11-01' = {
     firewallPolicy: {
       id: fwPolicy.id
     }
+  }
+}
+
+// =============================================================================
+// Routing Intent (optional)
+// =============================================================================
+resource routingIntent 'Microsoft.Network/virtualHubs/routingIntent@2025-05-01' = if (enableRoutingIntent) {
+  parent: hub
+  name: 'RoutingIntent'
+  properties: {
+    routingPolicies: [
+      {
+        name: 'PrivateTrafficPolicy'
+        destinations: [
+          'PrivateTraffic'
+        ]
+        nextHop: firewall.id
+      }
+      {
+        name: 'InternetTrafficPolicy'
+        destinations: [
+          'Internet'
+        ]
+        nextHop: firewall.id
+      }
+    ]
   }
 }
 

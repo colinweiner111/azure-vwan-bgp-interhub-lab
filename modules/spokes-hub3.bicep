@@ -15,13 +15,13 @@ resource spoke5Vnet 'Microsoft.Network/virtualNetworks@2023-11-01' = {
   location: location
   properties: {
     addressSpace: {
-      addressPrefixes: ['10.120.0.0/16']
+      addressPrefixes: ['10.48.4.0/22']
     }
     subnets: [
       {
         name: 'workloads'
         properties: {
-          addressPrefix: '10.120.1.0/24'
+          addressPrefix: '10.48.4.0/24'
           networkSecurityGroup: {
             id: spokeNsg.id
           }
@@ -39,13 +39,13 @@ resource spoke6Vnet 'Microsoft.Network/virtualNetworks@2023-11-01' = {
   location: location
   properties: {
     addressSpace: {
-      addressPrefixes: ['10.220.0.0/16']
+      addressPrefixes: ['10.48.8.0/22']
     }
     subnets: [
       {
         name: 'workloads'
         properties: {
-          addressPrefix: '10.220.1.0/24'
+          addressPrefix: '10.48.8.0/24'
           networkSecurityGroup: {
             id: spokeNsg.id
           }

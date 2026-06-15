@@ -53,7 +53,7 @@ resource hub 'Microsoft.Network/virtualHubs@2023-11-01' = {
   name: hubName
   location: location
   properties: {
-    addressPrefix: '192.168.1.0/24'
+    addressPrefix: '10.16.0.0/24'
     virtualWan: {
       id: vwan.id
     }
@@ -69,7 +69,7 @@ resource hub2 'Microsoft.Network/virtualHubs@2023-11-01' = {
   name: hub2Name
   location: hub2Location
   properties: {
-    addressPrefix: '192.168.2.0/24'
+    addressPrefix: '10.32.0.0/24'
     virtualWan: {
       id: vwan.id
     }
@@ -85,7 +85,7 @@ resource hub3 'Microsoft.Network/virtualHubs@2023-11-01' = {
   name: hub3Name
   location: hub3Location
   properties: {
-    addressPrefix: '192.168.3.0/24'
+    addressPrefix: '10.48.0.0/24'
     virtualWan: {
       id: vwan.id
     }
@@ -107,7 +107,7 @@ resource onpremWorkloadUdr 'Microsoft.Network/routeTables@2023-11-01' = {
       {
         name: 'spoke1'
         properties: {
-          addressPrefix: '10.100.0.0/16'
+          addressPrefix: '10.16.4.0/22'
           nextHopType: 'VirtualAppliance'
           nextHopIpAddress: '10.0.0.10'
         }
@@ -115,7 +115,7 @@ resource onpremWorkloadUdr 'Microsoft.Network/routeTables@2023-11-01' = {
       {
         name: 'spoke2'
         properties: {
-          addressPrefix: '10.200.0.0/16'
+          addressPrefix: '10.16.8.0/22'
           nextHopType: 'VirtualAppliance'
           nextHopIpAddress: '10.0.0.10'
         }
@@ -123,7 +123,7 @@ resource onpremWorkloadUdr 'Microsoft.Network/routeTables@2023-11-01' = {
       {
         name: 'spoke3'
         properties: {
-          addressPrefix: '10.110.0.0/16'
+          addressPrefix: '10.32.4.0/22'
           nextHopType: 'VirtualAppliance'
           nextHopIpAddress: '10.0.0.10'
         }
@@ -131,7 +131,7 @@ resource onpremWorkloadUdr 'Microsoft.Network/routeTables@2023-11-01' = {
       {
         name: 'spoke4'
         properties: {
-          addressPrefix: '10.210.0.0/16'
+          addressPrefix: '10.32.8.0/22'
           nextHopType: 'VirtualAppliance'
           nextHopIpAddress: '10.0.0.10'
         }
@@ -139,7 +139,7 @@ resource onpremWorkloadUdr 'Microsoft.Network/routeTables@2023-11-01' = {
       {
         name: 'spoke5'
         properties: {
-          addressPrefix: '10.120.0.0/16'
+          addressPrefix: '10.48.4.0/22'
           nextHopType: 'VirtualAppliance'
           nextHopIpAddress: '10.0.0.10'
         }
@@ -147,7 +147,7 @@ resource onpremWorkloadUdr 'Microsoft.Network/routeTables@2023-11-01' = {
       {
         name: 'spoke6'
         properties: {
-          addressPrefix: '10.220.0.0/16'
+          addressPrefix: '10.48.8.0/22'
           nextHopType: 'VirtualAppliance'
           nextHopIpAddress: '10.0.0.10'
         }

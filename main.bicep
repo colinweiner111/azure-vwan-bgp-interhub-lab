@@ -54,11 +54,17 @@ param sshPublicKey string = ''
 @description('VM size for FRR router')
 param vmSize string = 'Standard_B2s'
 
-@description('Deploy Azure Firewall with Routing Intent (adds ~15 min to deployment)')
+@description('Deploy Azure Firewall on all hubs (adds ~15 min to deployment)')
 param enableFirewall bool = false
+
+@description('Enable Routing Intent policies on hubs (requires enableFirewall=true)')
+param enableRoutingIntent bool = false
 
 @description('Deploy Azure Bastion for VM access (adds ~5 min to deployment)')
 param enableBastion bool = false
+
+@description('Deploy backup VPN sites/connections (secondary path per hub)')
+param enableBackupVpn bool = false
 
 @description('Azure Firewall SKU (if enabled)')
 @allowed(['Standard', 'Premium'])
@@ -170,7 +176,7 @@ module frrVm 'modules/frr-vm.bicep' = {
   }
 }
 
-// Backup router (Instance 1 peers) - same transit behavior
+// Backup router (Instance 1 peers) - always deployed; VPN connections only created when enableBackupVpn=true
 module frrVmBackup 'modules/frr-vm-backup.bicep' = {
   scope: rg
   name: 'frr-vm-backup-deployment'
@@ -204,10 +210,11 @@ module vpnSites 'modules/vpn-sites.bicep' = {
     vwanName: vwanName
     hubVpnGwName: vpnGateway.outputs.vpnGatewayName
     onpremPublicIp: frrVm.outputs.publicIpAddress
-    onpremPublicIp2: frrVmBackup.outputs.publicIpAddress
+    onpremPublicIp2: enableBackupVpn ? frrVmBackup.outputs.publicIpAddress : ''
     onpremBgpIp: frrVm.outputs.privateIpAddress
-    onpremBgpIp2: frrVmBackup.outputs.privateIpAddress
+    onpremBgpIp2: enableBackupVpn ? frrVmBackup.outputs.privateIpAddress : ''
     vpnPsk: vpnPsk
+    enableBackupVpn: enableBackupVpn
   }
   dependsOn: [spokes]  // Serialize hub operations to avoid UpdateGatewayInProgress
 }
@@ -221,10 +228,11 @@ module vpnSitesHub2 'modules/vpn-sites-hub2.bicep' = {
     vwanName: vwanName
     hub2VpnGwName: vpnGatewayHub2.outputs.vpnGatewayName
     onpremPublicIp: frrVm.outputs.publicIpAddress
-    onpremPublicIp2: frrVmBackup.outputs.publicIpAddress
+    onpremPublicIp2: enableBackupVpn ? frrVmBackup.outputs.publicIpAddress : ''
     onpremBgpIp: frrVm.outputs.privateIpAddress
-    onpremBgpIp2: frrVmBackup.outputs.privateIpAddress
+    onpremBgpIp2: enableBackupVpn ? frrVmBackup.outputs.privateIpAddress : ''
     vpnPsk: vpnPsk
+    enableBackupVpn: enableBackupVpn
   }
   dependsOn: [spokesHub2]  // Serialize hub operations to avoid UpdateGatewayInProgress
 }
@@ -238,10 +246,11 @@ module vpnSitesHub3 'modules/vpn-sites-hub3.bicep' = {
     vwanName: vwanName
     hub3VpnGwName: vpnGatewayHub3.outputs.vpnGatewayName
     onpremPublicIp: frrVm.outputs.publicIpAddress
-    onpremPublicIp2: frrVmBackup.outputs.publicIpAddress
+    onpremPublicIp2: enableBackupVpn ? frrVmBackup.outputs.publicIpAddress : ''
     onpremBgpIp: frrVm.outputs.privateIpAddress
-    onpremBgpIp2: frrVmBackup.outputs.privateIpAddress
+    onpremBgpIp2: enableBackupVpn ? frrVmBackup.outputs.privateIpAddress : ''
     vpnPsk: vpnPsk
+    enableBackupVpn: enableBackupVpn
   }
   dependsOn: [spokesHub3]  // Serialize hub operations to avoid UpdateGatewayInProgress
 }
@@ -256,6 +265,7 @@ module firewall 'modules/firewall.bicep' = if (enableFirewall) {
     location: location
     hubName: hubName
     firewallSku: firewallSku
+    enableRoutingIntent: enableRoutingIntent
   }
   dependsOn: [
     network
@@ -270,6 +280,7 @@ module firewallHub2 'modules/firewall.bicep' = if (enableFirewall) {
     location: hub2Location
     hubName: hub2Name
     firewallSku: firewallSku
+    enableRoutingIntent: enableRoutingIntent
   }
   dependsOn: [
     network
@@ -284,6 +295,7 @@ module firewallHub3 'modules/firewall.bicep' = if (enableFirewall) {
     location: hub3Location
     hubName: hub3Name
     firewallSku: firewallSku
+    enableRoutingIntent: enableRoutingIntent
   }
   dependsOn: [
     network

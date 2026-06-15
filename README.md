@@ -1,5 +1,42 @@
 # Azure vWAN BGP Inter-Hub Routing Lab
 
+## Table of Contents
+
+- [TL;DR](#tldr)
+- [Architecture Overview](#architecture-overview)
+- [Real-World Causes](#real-world-causes)
+- [Problem Statement](#problem-statement)
+- [Root Cause](#root-cause)
+- [Mitigation Options](#mitigation-options)
+- [Why Two VMs?](#why-two-vms)
+- [Prerequisites](#prerequisites)
+- [Deployment](#deployment)
+- [Lab Testing Scenarios](#lab-testing-scenarios)
+- [Extended Scenarios - Hub Routing Preference and AS-Path Prepend](#extended-scenarios--hub-routing-preference-and-as-path-prepend)
+- [FRR Router Commands](#frr-router-commands)
+- [PowerShell Scripts Reference](#powershell-scripts-reference)
+- [Key Azure Concepts Demonstrated](#key-azure-concepts-demonstrated)
+- [Cost & Cleanup](#cost--cleanup)
+- [Related](#related)
+- [References](#references)
+- [Scenario Quick Links](#scenario-quick-links)
+
+### Scenario Quick Links
+
+- [Scenario 1: Verify All Tunnels and BGP Sessions](#scenario-1-verify-all-tunnels-and-bgp-sessions)
+- [Scenario 2: Verify Cross-Hub Spoke-to-Spoke Connectivity](#scenario-2-verify-cross-hub-spoke-to-spoke-connectivity)
+- [Scenario 3: Observe Gateway-Learned Route Override](#scenario-3-observe-gateway-learned-route-override)
+- [Scenario 4: Compare Hub3 (Normal) vs Hub1/Hub2 (Overridden)](#scenario-4-compare-hub3-normal-vs-hub1hub2-overridden)
+- [Scenario 5: Disable Transit to Restore Normal Routing](#scenario-5-disable-transit-to-restore-normal-routing)
+- [Scenario 6: Test Hub Routing Preference Modes](#scenario-6-test-hub-routing-preference-modes)
+- [Scenario 7: AS-Path Prepend to Restore Remote Hub Paths](#scenario-7-as-path-prepend-to-restore-remote-hub-paths)
+- [Scenario 8: Full Test Sequence - VPN Override vs Remote Hub Baseline](#scenario-8-full-test-sequence--vpn-override-vs-remote-hub-baseline)
+- [Scenario 8b: Before/After Snapshot Comparison](#scenario-8b-beforeafter-snapshot-comparison)
+- [Scenario 9: Validate with Traceroute / Path Analysis](#scenario-9-validate-with-traceroute--path-analysis)
+- [Scenario 10: Azure Firewall Path Validation (if -enableFirewall)](#scenario-10-azure-firewall-path-validation-if--enablefirewall)
+- [Scenario 11: Azure Route Maps - DROP Transit Routes (HRP-independent)](#scenario-11-azure-route-maps--drop-transit-routes-hrp-independent)
+- [Scenario 12: Azure Route Maps - FILTER (Permit On-Prem Only)](#scenario-12-azure-route-maps--filter-permit-on-prem-only)
+
 ## TL;DR
 
 When an on-premises FRR/strongSwan router advertises Azure spoke prefixes learned from one vWAN hub back into a second hub via VPN+BGP, the receiving hub treats those as VPN gateway-learned routes. Because vWAN prefers gateway-learned routes over inter-hub (Remote Hub) backbone routes, the inter-hub backbone path is overridden. This lab demonstrates the behavior across three hubs and provides tooling to test Hub Routing Preference modes and AS-path manipulation to control path selection.
@@ -12,11 +49,11 @@ When an on-premises FRR/strongSwan router advertises Azure spoke prefixes learne
 > - AS-path prepending (FRR-side and Azure hub Route Maps) to restore Remote Hub paths
 > - Selective transit, asymmetric re-advertisement, and per-hub path control
 
-This lab uses **two on-prem FRRouting/strongSwan VMs** with **six total IPsec tunnels** (two per hub) acting as **transit routers** that re-advertise Azure-learned routes between Hub1 and Hub2, but not Hub3. This causes Hub1 and Hub2 to prefer the VPN Gateway path over the normal Remote Hub path for each other's spoke prefixes.
+This lab uses two on-prem FRRouting/strongSwan VMs as transit routers. The current deployment keeps one active VPN connection per hub (`conn-er-path`, `conn-er-path-hub2`, `conn-er-path-hub3`) and removes backup VPN connections.
 
 ## Architecture Overview
 
-![Azure vWAN BGP Inter-Hub Lab Architecture](image/azure-vwan-bgp-interhub-lab.drawio.svg)
+![Azure vWAN BGP Inter-Hub Lab Architecture](image/network-topology.svg)
 
 ### FRR Transit Behavior
 
@@ -30,11 +67,12 @@ This lab uses **two on-prem FRRouting/strongSwan VMs** with **six total IPsec tu
 
 | Component | Hub1 (westus) | Hub2 (westus3) | Hub3 (eastus2) |
 |-----------|---------------|----------------|---------------|
-| Hub address prefix | `192.168.1.0/24` | `192.168.2.0/24` | `192.168.3.0/24` |
-| Spoke VNets | spoke1 (`10.100.0.0/16`), spoke2 (`10.200.0.0/16`) | spoke3 (`10.110.0.0/16`), spoke4 (`10.210.0.0/16`) | spoke5 (`10.120.0.0/16`), spoke6 (`10.220.0.0/16`) |
+| Regional envelope | `10.16.0.0/20` | `10.32.0.0/20` | `10.48.0.0/20` |
+| Hub subnet | `10.16.0.0/24` | `10.32.0.0/24` | `10.48.0.0/24` |
+| Spoke VNets | spoke1 (`10.16.4.0/22`), spoke2 (`10.16.8.0/22`) | spoke3 (`10.32.4.0/22`), spoke4 (`10.32.8.0/22`) | spoke5 (`10.48.4.0/22`), spoke6 (`10.48.8.0/22`) |
 | Primary tunnel | `frr-router` → GW Instance 0 | `frr-router` → GW Instance 0 | `frr-router` → GW Instance 0 |
-| Backup tunnel | `frr-router-backup` → GW Instance 1 | `frr-router-backup` → GW Instance 1 | `frr-router-backup` → GW Instance 1 |
-| Workload VMs | `spoke1-vm` (`10.100.1.10`), `spoke2-vm` (`10.200.1.10`) | `spoke3-vm` (`10.110.1.10`), `spoke4-vm` (`10.210.1.10`) | `spoke5-vm` (`10.120.1.10`), `spoke6-vm` (`10.220.1.10`) |
+| Backup tunnel | Removed for current lab3 deployment |
+| Workload VMs | `spoke1-vm` (`10.16.4.10`), `spoke2-vm` (`10.16.8.10`) | `spoke3-vm` (`10.32.4.10`), `spoke4-vm` (`10.32.8.10`) | `spoke5-vm` (`10.48.4.10`), `spoke6-vm` (`10.48.8.10`) |
 
 Both FRR VMs sit in the shared **on-prem VNet** (`10.0.0.0/16`).
 
@@ -58,7 +96,7 @@ When an on-premises device (or virtual appliance) re-advertises Azure spoke pref
 
 ### What Happens
 
-1. Hub1 advertises its spoke prefixes (`10.100.0.0/16`, `10.200.0.0/16`) to the FRR VM via BGP
+1. Hub1 advertises its spoke prefixes (`10.16.4.0/22`, `10.16.8.0/22`) to the FRR VM via BGP
 2. The FRR VM learns these routes and **re-advertises them to Hub2** (transit behavior)
 3. Hub2 now has **two paths** to Hub1's spokes:
    - **Remote Hub** path (hub-to-hub via vWAN backbone) — NextHopType: `Remote Hub`
@@ -71,10 +109,10 @@ The same happens in reverse: Hub1 sees Hub2's spoke routes via VPN Gateway inste
 
 | Destination | Hub1 Expected | Hub1 Actual | Hub2 Expected | Hub2 Actual | Hub3 Expected | Hub3 Actual |
 |---|---|---|---|---|---|---|
-| `10.110.0.0/16` (spoke3) | RemoteHub | **VPN GW** | Direct | Direct | RemoteHub | RemoteHub |
-| `10.210.0.0/16` (spoke4) | RemoteHub | **VPN GW** | Direct | Direct | RemoteHub | RemoteHub |
-| `10.100.0.0/16` (spoke1) | Direct | Direct | RemoteHub | **VPN GW** | RemoteHub | RemoteHub |
-| `10.200.0.0/16` (spoke2) | Direct | Direct | RemoteHub | **VPN GW** | RemoteHub | RemoteHub |
+| `10.32.4.0/22` (spoke3) | RemoteHub | **VPN GW** | Direct | Direct | RemoteHub | RemoteHub |
+| `10.32.8.0/22` (spoke4) | RemoteHub | **VPN GW** | Direct | Direct | RemoteHub | RemoteHub |
+| `10.16.4.0/22` (spoke1) | Direct | Direct | RemoteHub | **VPN GW** | RemoteHub | RemoteHub |
+| `10.16.8.0/22` (spoke2) | Direct | Direct | RemoteHub | **VPN GW** | RemoteHub | RemoteHub |
 
 Hub3 is unaffected because the FRR VMs only apply `STANDARD_OUT` route-map to Hub3 peers (on-prem prefix only, no transit re-advertisement). Hub3 behaves normally because the FRR routers do not re-advertise Azure prefixes toward that hub, so it only learns spoke routes via the vWAN backbone (Remote Hub).
 
@@ -112,7 +150,7 @@ Prevent Azure-learned routes from being re-advertised back into Azure. Common ap
 
 - **BGP outbound filtering** on the on-premises router — deny Azure VNet prefixes in export policy
 - **AS-path filtering** — reject routes containing ASN 65515 from being re-advertised
-- **Prefix lists** — explicitly block Azure spoke prefixes (e.g., `10.100.0.0/16`, `10.200.0.0/16`) from outbound advertisements to other hubs
+- **Prefix lists** — explicitly block Azure spoke prefixes (for this deployment: `10.16.4.0/22`, `10.16.8.0/22`, `10.32.4.0/22`, `10.32.8.0/22`, `10.48.4.0/22`, `10.48.8.0/22`) from outbound advertisements to other hubs
 - **Route-maps** — apply deny rules for Azure-learned prefixes on specific BGP neighbors
 - **Hub routing preference** — AS Path mode may help if the Remote Hub path has a shorter AS-path than the VPN-transited path, but it does **not** resolve all cases (e.g., when `as-path exclude` makes the VPN path shorter)
 - **vWAN Route Maps** — apply Route Maps on the hub to drop or modify unwanted inbound routes at the hub level (useful when you can't control the on-prem device)
@@ -136,7 +174,7 @@ The FRR VMs add two `ip rule` entries at boot to ensure the main table (with BGP
 
 | Priority | Destination | Purpose |
 |----------|-------------|---------|
-| 100 | `192.168.0.0/16` | BGP peer addresses reach the VPN Gateway BGP IPs via VTI |
+| 100 | `10.16.0.0/12` | BGP peer addresses reach the VPN Gateway BGP IPs via VTI |
 | 101 | `10.0.0.0/8` | Spoke and on-prem data plane traffic is forwarded through VTI tunnels |
 
 Without the priority 101 rule, the BGP control plane works correctly (routes are learned and advertised) but the **data plane fails** — transit packets between spokes are sent out the default route instead of through the IPsec tunnels.
@@ -156,16 +194,21 @@ git clone https://github.com/colinweiner111/azure-vwan-bgp-interhub-lab.git
 cd azure-vwan-bgp-interhub-lab
 
 # Deploy the lab (~30-45 minutes — 3 VPN Gateways deploy in parallel)
-.\deploy-bicep.ps1 -ResourceGroupName vwan-bgp-interhub-lab -Location westus -VpnPsk "YourPreSharedKey123!"
+.\deploy-bicep.ps1 -ResourceGroupName vwan-bgp-interhub-lab3 -Location westus -Hub2Location westus3 -Hub3Location eastus2 -VpnPsk "YourPreSharedKey123!"
 
 # Optional: Deploy with Azure Bastion for VM access (adds ~5 min)
-.\deploy-bicep.ps1 -ResourceGroupName vwan-bgp-interhub-lab -Location westus -VpnPsk "YourPreSharedKey123!" -EnableBastion
+.\deploy-bicep.ps1 -ResourceGroupName vwan-bgp-interhub-lab3 -Location westus -Hub2Location westus3 -Hub3Location eastus2 -VpnPsk "YourPreSharedKey123!" -EnableBastion
 
 # Optional: Deploy with Azure Firewall on all hubs (adds ~15 min)
-.\deploy-bicep.ps1 -ResourceGroupName vwan-bgp-interhub-lab -Location westus -VpnPsk "YourPreSharedKey123!" -EnableFirewall
+.\deploy-bicep.ps1 -ResourceGroupName vwan-bgp-interhub-lab3 -Location westus -Hub2Location westus3 -Hub3Location eastus2 -VpnPsk "YourPreSharedKey123!" -EnableFirewall
+
+# Optional: Deploy with Azure Firewall + Routing Intent on all hubs (adds ~20 min)
+.\deploy-bicep.ps1 -ResourceGroupName vwan-bgp-interhub-lab3 -Location westus -Hub2Location westus3 -Hub3Location eastus2 -VpnPsk "YourPreSharedKey123!" -EnableFirewall -EnableRoutingIntent
 ```
 
 > **Note:** Hub regions are customizable. Use `-Hub2Location` and `-Hub3Location` to override. Hub names are auto-generated from regions (e.g., `hub1-eastus`, `hub2-centralus`).
+>
+> **Note:** `-EnableRoutingIntent` requires `-EnableFirewall`.
 
 ### Default Credentials
 
@@ -195,7 +238,7 @@ cd azure-vwan-bgp-interhub-lab
    ```bash
    # Check what frr-router advertises to Hub1's BGP peer
    sudo vtysh -c "show ip bgp neighbors <hub1-bgp-ip> advertised-routes"
-   # Should show: 10.0.0.0/16 + Hub2 spoke prefixes (10.110.0.0/16, 10.210.0.0/16)
+   # Should show: 10.0.0.0/16 + Hub2 spoke prefixes (10.32.4.0/22, 10.32.8.0/22)
 
    # Check what frr-router advertises to Hub3's BGP peer
    sudo vtysh -c "show ip bgp neighbors <hub3-bgp-ip> advertised-routes"
@@ -207,16 +250,16 @@ cd azure-vwan-bgp-interhub-lab
 Since the FRR transit causes spoke-to-spoke traffic between Hub1 and Hub2 to flow through the VPN tunnels, you can verify end-to-end data plane connectivity:
 
 ```bash
-# From spoke3-vm (Hub2, 10.110.1.10) → spoke1-vm (Hub1, 10.100.1.10)
-ping -c 5 10.100.1.10
+# From spoke3-vm (Hub2, 10.32.4.10) → spoke1-vm (Hub1, 10.16.4.10)
+ping -c 5 10.16.4.10
 # Expected: 0% loss, ~20-25ms RTT (Hub2 → VPN → FRR → VPN → Hub1)
 
-# From spoke1-vm (Hub1, 10.100.1.10) → spoke4-vm (Hub2, 10.210.1.10)
-ping -c 5 10.210.1.10
+# From spoke1-vm (Hub1, 10.16.4.10) → spoke4-vm (Hub2, 10.32.8.10)
+ping -c 5 10.32.8.10
 # Expected: 0% loss, ~20-25ms RTT
 
-# From spoke4-vm (Hub2) → spoke5-vm (Hub3, 10.120.1.10)
-ping -c 5 10.120.1.10
+# From spoke4-vm (Hub2) → spoke5-vm (Hub3, 10.48.4.10)
+ping -c 5 10.48.4.10
 # Expected: 0% loss, ~70ms RTT (double tunnel hop: Hub2 → FRR → Hub3)
 ```
 
@@ -226,24 +269,24 @@ ping -c 5 10.120.1.10
 
 1. Check vWAN effective routes in Azure Portal:
    - Navigate to **Virtual WAN** → **hub1** → **Routing** → **Effective Routes**
-2. Look for Hub2's spoke prefixes (`10.110.0.0/16`, `10.210.0.0/16`):
+2. Look for Hub2's spoke prefixes (`10.32.4.0/22`, `10.32.8.0/22`):
    - **Expected**: NextHopType = `VPN_S2S_Gateway` (overridden by transit)
    - **Without transit, would be**: NextHopType = `Remote Hub`
 3. Check Hub3's effective routes:
    - **Expected**: All remote spoke prefixes show NextHopType = `Remote Hub` (normal behavior)
 4. Check Hub2's effective routes:
-   - **Expected**: Hub1's spoke prefixes (`10.100.0.0/16`, `10.200.0.0/16`) via `VPN_S2S_Gateway`
+   - **Expected**: Hub1's spoke prefixes (`10.16.4.0/22`, `10.16.8.0/22`) via `VPN_S2S_Gateway`
 
 **Expected Outputs — the tell:**
 
 | Hub | Prefix | NextHopType (Actual) | NextHopType (Expected w/o Transit) | Overridden? |
 |-----|--------|---------------------|------------------------------------|-------------|
-| Hub1 | `10.110.0.0/16` | `VPN_S2S_Gateway` | `Remote Hub` | **Yes** |
-| Hub1 | `10.210.0.0/16` | `VPN_S2S_Gateway` | `Remote Hub` | **Yes** |
-| Hub2 | `10.100.0.0/16` | `VPN_S2S_Gateway` | `Remote Hub` | **Yes** |
-| Hub2 | `10.200.0.0/16` | `VPN_S2S_Gateway` | `Remote Hub` | **Yes** |
-| Hub3 | `10.100.0.0/16` | `Remote Hub` | `Remote Hub` | No |
-| Hub3 | `10.110.0.0/16` | `Remote Hub` | `Remote Hub` | No |
+| Hub1 | `10.32.4.0/22` | `VPN_S2S_Gateway` | `Remote Hub` | **Yes** |
+| Hub1 | `10.32.8.0/22` | `VPN_S2S_Gateway` | `Remote Hub` | **Yes** |
+| Hub2 | `10.16.4.0/22` | `VPN_S2S_Gateway` | `Remote Hub` | **Yes** |
+| Hub2 | `10.16.8.0/22` | `VPN_S2S_Gateway` | `Remote Hub` | **Yes** |
+| Hub3 | `10.16.4.0/22` | `Remote Hub` | `Remote Hub` | No |
+| Hub3 | `10.32.4.0/22` | `Remote Hub` | `Remote Hub` | No |
 
 ### Scenario 4: Compare Hub3 (Normal) vs Hub1/Hub2 (Overridden)
 
@@ -256,7 +299,7 @@ ping -c 5 10.120.1.10
 | ASPath | `65520` | `65001` |
 
 ```powershell
-$rg = "vwan-bgp-interhub-lab"
+$rg = "vwan-bgp-interhub-lab3"
 
 # Hub1 effective routes — should show Hub2 spokes via VPN Gateway
 az network vhub get-effective-routes -g $rg -n hub1-westus `
@@ -280,8 +323,8 @@ az network vhub get-effective-routes -g $rg -n hub3-eastus2 `
 
 | Prefix | Before (Transit On) | After (Transit Off) |
 |--------|--------------------|-----------------------|
-| `10.110.0.0/16` | NextHopType: `VPN_S2S_Gateway` | NextHopType: `Remote Hub` |
-| `10.210.0.0/16` | NextHopType: `VPN_S2S_Gateway` | NextHopType: `Remote Hub` |
+| `10.32.4.0/22` | NextHopType: `VPN_S2S_Gateway` | NextHopType: `Remote Hub` |
+| `10.32.8.0/22` | NextHopType: `VPN_S2S_Gateway` | NextHopType: `Remote Hub` |
 | `10.0.0.0/16` | NextHopType: `VPN_S2S_Gateway` | NextHopType: `VPN_S2S_Gateway` |
 
 > On-prem prefix `10.0.0.0/16` stays as `VPN_S2S_Gateway` — that's correct. Only the Azure spoke prefixes should flip back to `Remote Hub`.
@@ -471,17 +514,129 @@ Start-Sleep -Seconds 90  # Allow route map propagation
 # Expected: Override restored — Hub1/Hub2 show VPN_S2S_Gateway for cross-hub spokes
 ```
 
+### Scenario 8b: Before/After Snapshot Comparison
+
+Use `compare-routes.ps1` to capture a snapshot before and after any lab change, then diff the two to see exactly which prefixes changed next-hop type.
+
+```powershell
+# Step 1: Capture baseline (transit ON, VPN override active)
+.\scripts\compare-routes.ps1 -Snapshot -SnapshotFile before.json
+
+# Apply a change — choose any of the following:
+#   Scenario E (Azure hub DROP):      .\scripts\test-as-path-prepend.ps1 -Scenario E
+#   Scenario F (Azure hub FILTER):    .\scripts\test-as-path-prepend.ps1 -Scenario F
+#   Scenario C (Azure prepend):       .\scripts\test-as-path-prepend.ps1 -Scenario C
+#   FRR STANDARD_OUT (disable transit): SSH to FRR VMs, apply STANDARD_OUT per Scenario 5
+
+Start-Sleep -Seconds 90   # Allow BGP reconvergence
+
+# Step 2: Capture after state
+.\scripts\compare-routes.ps1 -Snapshot -SnapshotFile after.json
+
+# Step 3: Diff and print change table
+.\scripts\compare-routes.ps1 -Compare -Before before.json -After after.json
+
+# Optional: Save report to file
+.\scripts\compare-routes.ps1 -Compare -Before before.json -After after.json -OutputFile "report-$(Get-Date -Format yyyyMMdd-HHmmss).txt"
+```
+
+**Expected output (Scenario E — DROP applied):**
+
+```
+  --- Hub: hub1-westus ---
+      HRP: VpnGateway
+      Prefix                 Before NextHop        After NextHop          AS-Path Change         Result
+      ─────────────────────────────────────────────────────────────────────────────────────────────────
+      10.16.4.0/22          HubVnetConnection      HubVnetConnection      65515                  unchanged
+      10.32.4.0/22          VPN_S2S_Gateway        Remote Hub             65001 -> 65520 65520   IMPROVED (backbone restored)
+      10.16.8.0/22          HubVnetConnection      HubVnetConnection      65515                  unchanged
+      10.32.8.0/22          VPN_S2S_Gateway        Remote Hub             65001 -> 65520 65520   IMPROVED (backbone restored)
+      10.0.0.0/16            VPN_S2S_Gateway        VPN_S2S_Gateway        65001                  unchanged
+```
+
+### Scenario 11: Azure Route Maps — DROP Transit Routes (HRP-independent)
+
+**Scenario E** in `test-as-path-prepend.ps1` creates an inbound Azure Route Map that **drops** any transit-re-advertised Azure spoke prefix before it enters the hub's route table. Unlike AS-path prepend, this works regardless of Hub Routing Preference setting.
+
+**How it works:**
+- Rule 1: Match prefixes `10.16.4.0/22`, `10.16.8.0/22`, `10.32.4.0/22`, `10.32.8.0/22`, `10.48.4.0/22`, `10.48.8.0/22` → **Drop** (Terminate)
+- Rule 2: Everything else (on-prem `10.0.0.0/16`) → **Continue** (permit)
+
+The route map is applied inbound on all BGP-enabled VPN connections. Azure spoke prefixes transited through the FRR VMs are silently dropped at hub ingress. The hub never learns those prefixes via VPN and falls back to the Remote Hub (backbone) path exclusively.
+
+```powershell
+# Apply (no HRP change required)
+.\scripts\test-as-path-prepend.ps1 -Scenario E
+Start-Sleep -Seconds 90
+
+# Validate
+.\scripts\validate-routes.ps1
+# Expected: Hub1/Hub2 cross-hub spoke prefixes show Remote Hub (not VPN_S2S_Gateway)
+#           On-prem 10.0.0.0/16 still shows VPN_S2S_Gateway (unaffected)
+
+# Remove
+.\scripts\test-as-path-prepend.ps1 -Scenario D
+```
+
+**Expected result per hub:**
+
+| Hub | Prefix | Before (Scenario E) | After (Scenario E) |
+|-----|--------|--------------------|--------------------|
+| Hub1 | `10.32.4.0/22` | `VPN_S2S_Gateway` | `Remote Hub` |
+| Hub1 | `10.32.8.0/22` | `VPN_S2S_Gateway` | `Remote Hub` |
+| Hub2 | `10.16.4.0/22` | `VPN_S2S_Gateway` | `Remote Hub` |
+| Hub2 | `10.16.8.0/22` | `VPN_S2S_Gateway` | `Remote Hub` |
+| Hub1 | `10.0.0.0/16` | `VPN_S2S_Gateway` | `VPN_S2S_Gateway` |
+
+> **Key difference from AS-path prepend:** Scenario C/prepend restores Remote Hub only when HRP=ASPath. Scenario E/DROP restores Remote Hub regardless of HRP — the route is never accepted from VPN at all.
+
+### Scenario 12: Azure Route Maps — FILTER (Permit On-Prem Only)
+
+**Scenario F** is a blanket inbound filter: only `10.0.0.0/16` is permitted from VPN, all other prefixes (including any Azure spoke routes) are dropped. Useful when you cannot enumerate every Azure spoke prefix and want a deny-by-default policy.
+
+```powershell
+# Apply
+.\scripts\test-as-path-prepend.ps1 -Scenario F
+Start-Sleep -Seconds 90
+
+# Validate
+.\scripts\validate-routes.ps1
+# Expected: VPN connections contribute only 10.0.0.0/16 to the hub route table
+#           All cross-hub Azure spoke prefixes use Remote Hub path exclusively
+
+# Remove
+.\scripts\test-as-path-prepend.ps1 -Scenario D
+```
+
+**Route Map logic (Scenario F):**
+```
+Rule 1: match prefix = 10.0.0.0/16  → permit (Terminate)
+Rule 2: match any                   → Drop   (Terminate)
+```
+
+> **Operational note:** In production, Scenario F is the safest Azure-side fix when you cannot modify on-prem routing policy. It guarantees no Azure-learned prefixes can be re-injected via VPN regardless of what the on-prem router advertises.
+
+### Comparison: All Mitigation Approaches
+
+| Method | Where Applied | HRP Required | Granularity | Best For |
+|--------|--------------|-------------|-------------|---------|
+| FRR `STANDARD_OUT` | On-prem FRR router | Any | Per-peer | When you own on-prem router |
+| FRR `PREPEND4_OUT` | On-prem FRR router | ASPath | Per-peer | Soft preference (on-prem doesn't stop advertising) |
+| Azure Route Map Prepend (Scenario C) | Hub inbound VPN | ASPath | Per-hub | When on-prem can't be changed, prefer AS-path tuning |
+| Azure Route Map DROP (Scenario E) | Hub inbound VPN | Any | Per-prefix | When on-prem can't be changed, clean fix with prefix list |
+| Azure Route Map FILTER (Scenario F) | Hub inbound VPN | Any | All VPN inbound | Deny-by-default — strictest hub-side protection |
+
 ### Scenario 9: Validate with Traceroute / Path Analysis
 
 #### From a spoke VM (requires Bastion or SSH)
 
 ```bash
-# From spoke1-vm (Hub1, 10.100.1.10) to spoke3-vm (Hub2, 10.110.1.10)
+# From spoke1-vm (Hub1, 10.16.4.10) to spoke3-vm (Hub2, 10.32.4.10)
 # Transit ON: path = spoke1-vm → Hub1-VPN-GW → FRR-router → Hub2-VPN-GW → spoke3-vm
-traceroute -n 10.110.1.10
+traceroute -n 10.32.4.10
 
 # Transit OFF (Remote Hub): path = spoke1-vm → Hub1 → vWAN backbone → Hub2 → spoke3-vm
-traceroute -n 10.110.1.10
+traceroute -n 10.32.4.10
 # Fewer hops, lower latency (no double VPN encap/decap through FRR)
 ```
 
@@ -496,7 +651,7 @@ Expected TTL/hop counts:
 #### From Azure Portal (no VM access needed)
 
 1. Navigate to **Network Watcher** → **Connection Troubleshoot**
-2. Source: `spoke1-vm`, Destination IP: `10.110.1.10`, Protocol: ICMP
+2. Source: `spoke1-vm`, Destination IP: `10.32.4.10`, Protocol: ICMP
 3. Run test with **Hop-by-hop** enabled
 4. Compare hop count and paths between Transit ON vs Transit OFF states
 
@@ -567,7 +722,8 @@ exit
 | `scripts/add-route-maps.ps1` | Create Azure Hub Route Maps (summarize + prepend for ER failover scenario) |
 | `scripts/set-hub-routing-preference.ps1` | Toggle Hub Routing Preference per hub (ExpressRoute / VpnGateway / ASPath) |
 | `scripts/validate-routes.ps1` | Comprehensive route validation: hub effective routes, BGP peers, next-hop analysis, firewall |
-| `scripts/test-as-path-prepend.ps1` | Apply Azure inbound route maps with AS-path prepend to test ASPath HRP path selection |
+| `scripts/test-as-path-prepend.ps1` | Apply Azure inbound route maps: AS-path prepend (A/B/C), remove (D), DROP transit (E), FILTER on-prem-only (F) |
+| `scripts/compare-routes.ps1` | Snapshot hub effective routes to JSON and diff two snapshots for before/after comparison |
 | `scripts/scheduled-deploy.ps1` | Scheduled deployment helper |
 
 ### Quick Reference — Common Operations
@@ -590,13 +746,27 @@ $rg = "vwan-bgp-interhub-lab"
 # Show HRP on all hubs
 .\scripts\set-hub-routing-preference.ps1 -ShowCurrent
 
-# Apply 4x AS-path prepend (Remote Hub wins with ASPath HRP)
+# ── AS-path prepend approach (requires HRP=ASPath to fully restore Remote Hub) ──
 .\scripts\set-hub-routing-preference.ps1 -Hub1 ASPath -Hub2 ASPath
 .\scripts\test-as-path-prepend.ps1 -Scenario C
 
-# Remove prepend + restore default HRP
+# ── DROP approach (works with any HRP — recommended Azure-side fix) ──
+.\scripts\test-as-path-prepend.ps1 -Scenario E
+Start-Sleep -Seconds 90
+.\scripts\validate-routes.ps1
+
+# ── FILTER approach (permit on-prem only — deny-by-default) ──
+.\scripts\test-as-path-prepend.ps1 -Scenario F
+
+# Remove all route maps (restore baseline VPN override)
 .\scripts\test-as-path-prepend.ps1 -Scenario D
 .\scripts\set-hub-routing-preference.ps1 -Hub1 VpnGateway -Hub2 VpnGateway -Hub3 ExpressRoute
+
+# ── Before/after snapshot comparison ──
+.\scripts\compare-routes.ps1 -Snapshot -SnapshotFile before.json
+# ... apply a change ...
+.\scripts\compare-routes.ps1 -Snapshot -SnapshotFile after.json
+.\scripts\compare-routes.ps1 -Compare -Before before.json -After after.json
 ```
 
 ## Key Azure Concepts Demonstrated

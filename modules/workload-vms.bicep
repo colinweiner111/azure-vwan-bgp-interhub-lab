@@ -3,8 +3,8 @@
 // =============================================================================
 // Creates Ubuntu VMs in:
 // - On-prem workloads subnet (10.0.1.0/24)
-// - Spoke 1 workloads subnet (10.100.1.0/24)
-// - Spoke 2 workloads subnet (10.200.1.0/24)
+// - Spoke 1 workloads subnet (10.16.4.0/24)
+// - Spoke 2 workloads subnet (10.16.8.0/24)
 // =============================================================================
 
 param location string
@@ -86,7 +86,7 @@ resource spoke1Nic 'Microsoft.Network/networkInterfaces@2023-11-01' = {
         name: 'ipconfig1'
         properties: {
           privateIPAllocationMethod: 'Static'
-          privateIPAddress: '10.100.1.10'
+          privateIPAddress: '10.16.4.10'
           subnet: {
             id: spoke1SubnetId
           }
@@ -144,7 +144,7 @@ resource spoke2Nic 'Microsoft.Network/networkInterfaces@2023-11-01' = {
         name: 'ipconfig1'
         properties: {
           privateIPAllocationMethod: 'Static'
-          privateIPAddress: '10.200.1.10'
+          privateIPAddress: '10.16.8.10'
           subnet: {
             id: spoke2SubnetId
           }

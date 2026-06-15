@@ -16,13 +16,13 @@
 
 param(
     [Parameter(Mandatory=$false)]
-    [string]$ResourceGroupName = "vwan-failover-lab",
+    [string]$ResourceGroupName = "vwan-bgp-interhub-lab",
     
     [Parameter(Mandatory=$false)]
-    [string]$HubName = "hub1",
+    [string]$HubName = "hub1-westus",
     
     [Parameter(Mandatory=$false)]
-    [string]$VpnConnectionName = "conn-vpn-backup",
+    [string]$VpnConnectionName = "conn-er-path",
     
     [Parameter(Mandatory=$false)]
     [string]$RouteMapName = "summarize-vpn",

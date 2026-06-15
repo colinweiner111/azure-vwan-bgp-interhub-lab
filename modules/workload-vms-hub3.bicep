@@ -2,8 +2,8 @@
 // Workload VMs Module - Hub3 Test VMs for connectivity validation
 // =============================================================================
 // Creates Ubuntu VMs in:
-// - Spoke 5 workloads subnet (10.120.1.0/24) connected to hub3
-// - Spoke 6 workloads subnet (10.220.1.0/24) connected to hub3
+// - Spoke 5 workloads subnet (10.48.4.0/24) connected to hub3
+// - Spoke 6 workloads subnet (10.48.8.0/24) connected to hub3
 // =============================================================================
 
 param location string
@@ -26,7 +26,7 @@ resource spoke5Nic 'Microsoft.Network/networkInterfaces@2023-11-01' = {
         name: 'ipconfig1'
         properties: {
           privateIPAllocationMethod: 'Static'
-          privateIPAddress: '10.120.1.10'
+          privateIPAddress: '10.48.4.10'
           subnet: {
             id: spoke5SubnetId
           }
@@ -84,7 +84,7 @@ resource spoke6Nic 'Microsoft.Network/networkInterfaces@2023-11-01' = {
         name: 'ipconfig1'
         properties: {
           privateIPAllocationMethod: 'Static'
-          privateIPAddress: '10.220.1.10'
+          privateIPAddress: '10.48.8.10'
           subnet: {
             id: spoke6SubnetId
           }

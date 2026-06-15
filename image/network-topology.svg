@@ -1,0 +1,143 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1800" height="1100" viewBox="0 0 1800 1100">
+  <defs>
+    <style>
+      .note { font: 600 24px 'Comic Sans MS','Segoe Print','Bradley Hand',cursive; fill: #222b3a; }
+      .body { font: 500 18px 'Comic Sans MS','Segoe Print','Bradley Hand',cursive; fill: #222b3a; }
+      .red { fill: #d62839; }
+      .blueStroke { stroke: #4a8fd8; }
+      .ink { stroke: #4d5d78; }
+      .purple { fill: #6a4ea4; }
+       .small { font: 600 18px 'Comic Sans MS','Segoe Print','Bradley Hand',cursive; fill: #6d28d9; }
+    </style>
+    <marker id="arrowPurple" markerWidth="10" markerHeight="8" refX="8" refY="4" orient="auto">
+      <path d="M0,0 L10,4 L0,8 z" fill="#6a4ea4"/>
+    </marker>
+  </defs>
+
+  <rect x="0" y="0" width="1800" height="1100" fill="#e8eaee"/>
+
+  <text x="900" y="44" text-anchor="middle" class="note">Azure vWAN Inter-Hub Lab3 - ER Simulation via S2S VPN + BGP</text>
+
+  <!-- Top spokes row -->
+  <g fill="#eceff4" stroke="#4a8fd8" stroke-width="2.5">
+    <rect x="160" y="80" width="190" height="92"/>
+    <rect x="370" y="80" width="190" height="92"/>
+    <rect x="620" y="80" width="190" height="92"/>
+    <rect x="830" y="80" width="190" height="92"/>
+    <rect x="1080" y="80" width="190" height="92"/>
+    <rect x="1290" y="80" width="190" height="92"/>
+  </g>
+  <g class="body">
+    <text x="255" y="116" text-anchor="middle">Spoke1</text>
+    <text x="255" y="142" text-anchor="middle">10.16.4.0/22</text>
+    <text x="255" y="166" text-anchor="middle">VM 10.16.4.10</text>
+
+    <text x="465" y="116" text-anchor="middle">Spoke2</text>
+    <text x="465" y="142" text-anchor="middle">10.16.8.0/22</text>
+    <text x="465" y="166" text-anchor="middle">VM 10.16.8.10</text>
+
+    <text x="715" y="116" text-anchor="middle">Spoke3</text>
+    <text x="715" y="142" text-anchor="middle">10.32.4.0/22</text>
+    <text x="715" y="166" text-anchor="middle">VM 10.32.4.10</text>
+
+    <text x="925" y="116" text-anchor="middle">Spoke4</text>
+    <text x="925" y="142" text-anchor="middle">10.32.8.0/22</text>
+    <text x="925" y="166" text-anchor="middle">VM 10.32.8.10</text>
+
+    <text x="1175" y="116" text-anchor="middle">Spoke5</text>
+    <text x="1175" y="142" text-anchor="middle">10.48.4.0/22</text>
+    <text x="1175" y="166" text-anchor="middle">VM 10.48.4.10</text>
+
+    <text x="1385" y="116" text-anchor="middle">Spoke6</text>
+    <text x="1385" y="142" text-anchor="middle">10.48.8.0/22</text>
+    <text x="1385" y="166" text-anchor="middle">VM 10.48.8.10</text>
+  </g>
+
+  <!-- Hubs -->
+  <g fill="#8fb8df" stroke="#4a8fd8" stroke-width="2.8">
+    <circle cx="420" cy="460" r="72"/>
+    <circle cx="900" cy="460" r="72"/>
+    <circle cx="1380" cy="460" r="72"/>
+  </g>
+  <g class="note">
+    <text x="420" y="452" text-anchor="middle">Hub1</text>
+    <text x="420" y="482" text-anchor="middle">10.16.0.0/24</text>
+    <text x="900" y="452" text-anchor="middle">Hub2</text>
+    <text x="900" y="482" text-anchor="middle">10.32.0.0/24</text>
+    <text x="1380" y="452" text-anchor="middle">Hub3</text>
+    <text x="1380" y="482" text-anchor="middle">10.48.0.0/24</text>
+  </g>
+
+  <!-- Hub interconnect -->
+  <line x1="492" y1="460" x2="828" y2="460" stroke="#3d4a62" stroke-width="2.2" stroke-dasharray="6 5"/>
+  <line x1="972" y1="460" x2="1308" y2="460" stroke="#3d4a62" stroke-width="2.2" stroke-dasharray="6 5"/>
+
+  <!-- Spoke links -->
+  <g class="ink" fill="none" stroke-width="2.3">
+    <path d="M255 172 L360 400"/>
+    <path d="M465 172 L450 388"/>
+    <path d="M715 172 L840 400"/>
+    <path d="M925 172 L960 392"/>
+    <path d="M1175 172 L1320 398"/>
+    <path d="M1385 172 L1442 402"/>
+  </g>
+
+  <!-- VPN gateway callouts -->
+  <g fill="#f9e1e1" stroke="#cf2533" stroke-width="3">
+    <rect x="300" y="600" width="240" height="92"/>
+    <rect x="780" y="600" width="240" height="92"/>
+    <rect x="1260" y="600" width="240" height="92"/>
+  </g>
+  <g class="note red">
+    <text x="420" y="638" text-anchor="middle">hub1-westus-vpngw</text>
+    <text x="420" y="668" text-anchor="middle">conn-er-path</text>
+
+    <text x="900" y="638" text-anchor="middle">hub2-westus3-vpngw</text>
+    <text x="900" y="668" text-anchor="middle">conn-er-path-hub2</text>
+
+    <text x="1380" y="638" text-anchor="middle">hub3-eastus2-vpngw</text>
+    <text x="1380" y="668" text-anchor="middle">conn-er-path-hub3</text>
+  </g>
+
+  <!-- On-prem nodes -->
+  <g fill="#d9d9d9" stroke="#5b5b5b" stroke-width="2.2">
+    <rect x="290" y="830" width="260" height="92"/>
+    <rect x="770" y="830" width="260" height="92"/>
+    <rect x="1010" y="960" width="260" height="92"/>
+  </g>
+  <g class="body">
+    <text x="420" y="866" text-anchor="middle">frr-router</text>
+    <text x="420" y="894" text-anchor="middle">10.0.0.10</text>
+
+    <text x="900" y="866" text-anchor="middle">frr-router-backup</text>
+    <text x="900" y="894" text-anchor="middle">10.0.0.11</text>
+
+    <text x="1140" y="996" text-anchor="middle">onprem-vm</text>
+    <text x="1140" y="1024" text-anchor="middle">10.0.1.10</text>
+  </g>
+
+  <!-- On-prem links -->
+  <g class="ink" fill="none" stroke-width="2.2">
+    <path d="M550 876 C620 876, 700 876, 770 876"/>
+    <path d="M1030 876 C1080 900, 1110 930, 1140 960"/>
+  </g>
+  <text x="800" y="914" text-anchor="middle" class="body" fill="#4d5d78">On-prem LAN</text>
+
+  <!-- S2S/BGP dashed arrows -->
+  <g fill="none" stroke="#6a4ea4" stroke-width="2.2" stroke-dasharray="6 6" marker-end="url(#arrowPurple)">
+    <path d="M420 830 C390 770, 390 735, 420 692"/>
+    <path d="M420 830 C620 760, 760 730, 900 692"/>
+    <path d="M420 830 C920 760, 1150 730, 1380 692"/>
+  </g>
+
+  <g>
+    <rect x="330" y="734" width="150" height="34" fill="#e6d6f7"/>
+    <rect x="810" y="734" width="150" height="34" fill="#e6d6f7"/>
+    <rect x="1290" y="734" width="150" height="34" fill="#e6d6f7"/>
+  </g>
+  <g class="small">
+    <text x="405" y="756" text-anchor="middle">IPSec + BGP</text>
+    <text x="885" y="756" text-anchor="middle">IPSec + BGP</text>
+    <text x="1365" y="756" text-anchor="middle">IPSec + BGP</text>
+  </g>
+</svg>

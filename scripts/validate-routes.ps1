@@ -66,9 +66,9 @@ function Write-Title { param($msg) $line = "`n  --- $msg ---"; Write-Host $line 
 
 # Spoke prefixes expected in each hub's route table
 $spokeMap = @{
-    hub1 = @('10.100.0.0/16', '10.200.0.0/16')
-    hub2 = @('10.110.0.0/16', '10.210.0.0/16')
-    hub3 = @('10.120.0.0/16', '10.220.0.0/16')
+    hub1 = @('10.16.4.0/22', '10.16.8.0/22')
+    hub2 = @('10.32.4.0/22', '10.32.8.0/22')
+    hub3 = @('10.48.4.0/22', '10.48.8.0/22')
 }
 $onpremPrefix  = '10.0.0.0/16'
 $allSpokesCsv  = ($spokeMap.Values | ForEach-Object { $_ }) -join ', '
@@ -95,6 +95,8 @@ if (-not $hubs -or $hubs.Count -eq 0) {
 
 $vpnGws = az network vpn-gateway list --resource-group $ResourceGroupName `
     --query "[].{name:name, id:id, hubId:virtualHub.id}" | ConvertFrom-Json
+
+$subscriptionId = az account show --query id -o tsv
 
 $vms = az vm list --resource-group $ResourceGroupName `
     --query "[].{name:name, id:id}" | ConvertFrom-Json 2>$null
@@ -133,9 +135,13 @@ $hubRouteResults = @{}
 foreach ($hub in ($hubs | Sort-Object name)) {
     Write-Title "Hub: $($hub.name) [$($hub.hrp ?? 'ExpressRoute')]"
 
+    $routeTableId = "/subscriptions/$subscriptionId/resourceGroups/$ResourceGroupName/providers/Microsoft.Network/virtualHubs/$($hub.name)/hubRouteTables/defaultRouteTable"
+
     $rawRoutes = az network vhub get-effective-routes `
         --resource-group $ResourceGroupName `
         --name $hub.name `
+        --resource-type RouteTable `
+        --resource-id $routeTableId `
         --query "value" 2>$null | ConvertFrom-Json
 
     if (-not $rawRoutes) {
@@ -201,38 +207,55 @@ Write-Step "4. VPN Gateway BGP Peer Status"
 foreach ($gw in ($vpnGws | Sort-Object name)) {
     Write-Title "Gateway: $($gw.name)"
 
-    $peers = az network vpn-gateway list-bgp-peer-status `
+    $connections = az network vpn-gateway connection list `
         --resource-group $ResourceGroupName `
         --gateway-name $gw.name `
-        --query "value" 2>$null | ConvertFrom-Json
+        --query "[].name" 2>$null | ConvertFrom-Json
 
-    if (-not $peers) {
-        Write-Warn "Could not retrieve BGP peers for $($gw.name)"
+    if (-not $connections) {
+        Write-Warn "No connections found for $($gw.name)"
         continue
     }
 
-    $connected    = $peers | Where-Object { $_.connectedDuration -ne $null -and $_.connectedDuration -ne '' }
-    $disconnected = $peers | Where-Object { $_.connectedDuration -eq $null -or $_.connectedDuration -eq '' }
+    $links = @()
+    foreach ($connName in $connections) {
+        $connLinks = az network vpn-gateway connection show `
+            --resource-group $ResourceGroupName `
+            --gateway-name $gw.name `
+            --name $connName `
+            --query "vpnLinkConnections[].{connection:'$connName', link:name, status:connectionStatus, bgp:enableBgp, ingress:ingressBytesTransferred, egress:egressBytesTransferred}" 2>$null | ConvertFrom-Json
+        if ($connLinks) {
+            $links += $connLinks
+        }
+    }
 
-    Write-Data "Peers total:     $($peers.Count)   Connected: $($connected.Count)   Down: $($disconnected.Count)"
+    if (-not $links) {
+        Write-Warn "Could not retrieve VPN link status for $($gw.name)"
+        continue
+    }
+
+    $connected    = $links | Where-Object { $_.status -eq 'Connected' }
+    $disconnected = $links | Where-Object { $_.status -ne 'Connected' }
+
+    Write-Data "Links total:     $($links.Count)   Connected: $($connected.Count)   Down: $($disconnected.Count)"
     Write-Host ""
-    Write-Host "      Peer IP           State         ASN     Prefixes Rcvd  Prefixes Sent  Connected Duration" -ForegroundColor DarkGray
+    Write-Host "      Connection         Link Name            State        BGP   IngressBytes   EgressBytes" -ForegroundColor DarkGray
     Write-Host "      ───────────────────────────────────────────────────────────────────────────────────────" -ForegroundColor DarkGray
 
-    foreach ($p in ($peers | Sort-Object neighbor)) {
-        $state     = $p.state ?? 'Unknown'
+    foreach ($p in ($links | Sort-Object connection,link)) {
+        $state     = $p.status ?? 'Unknown'
         $stateColor = if ($state -eq 'Connected') { 'Green' } else { 'Red' }
-        $asn       = $p.asn ?? '-'
-        $rcvd      = $p.receivedPrefixCount ?? '-'
-        $sent      = $p.advertisedPrefixCount ?? '-'
-        $duration  = $p.connectedDuration ?? '(not connected)'
-        $peerPad   = ($p.neighbor ?? '').PadRight(17)
-        $statePad  = $state.PadRight(13)
+        $bgp       = if ($p.bgp -eq $true) { 'Yes' } else { 'No' }
+        $ingress   = if ($null -ne $p.ingress) { $p.ingress } else { '-' }
+        $egress    = if ($null -ne $p.egress)  { $p.egress }  else { '-' }
+        $connPad   = ($p.connection ?? '').PadRight(18)
+        $linkPad   = ($p.link ?? '').PadRight(20)
+        $statePad  = $state.PadRight(12)
 
-        Write-Host "      $peerPad " -NoNewline -ForegroundColor White
+        Write-Host "      $connPad $linkPad " -NoNewline -ForegroundColor White
         Write-Host "$statePad " -NoNewline -ForegroundColor $stateColor
-        Write-Host "$($asn.ToString().PadRight(7)) $($rcvd.ToString().PadRight(14)) $($sent.ToString().PadRight(14)) $duration" -ForegroundColor White
-        $null = $report.AppendLine("      $peerPad $statePad $asn  Rcvd=$rcvd Sent=$sent  $duration")
+        Write-Host "$($bgp.PadRight(5)) $($ingress.ToString().PadRight(14)) $egress" -ForegroundColor White
+        $null = $report.AppendLine("      $connPad $linkPad $statePad BGP=$bgp Ingress=$ingress Egress=$egress")
     }
 }
 
@@ -252,24 +275,23 @@ foreach ($gw in ($vpnGws | Sort-Object name)) {
     foreach ($conn in $connections) {
         Write-Data "Connection: $($conn.name)"
 
-        $learnedRoutes = az network vpn-gateway connection show `
-            --resource-group $ResourceGroupName `
-            --gateway-name $gw.name `
-            --name $conn.name `
-            --query "properties.ingressBytesTransferred" 2>$null
-
         # Get inbound route map if any
         $connDetail = az network vpn-gateway connection show `
             --resource-group $ResourceGroupName `
             --gateway-name $gw.name `
             --name $conn.name `
-            --query "{status:connectionStatus, inRM:routingConfiguration.inboundRouteMap.id, outRM:routingConfiguration.outboundRouteMap.id, bgp:enableBgp}" 2>$null | ConvertFrom-Json
+            --query "{status:provisioningState, inRM:routingConfiguration.inboundRouteMap.id, outRM:routingConfiguration.outboundRouteMap.id, linkStates:vpnLinkConnections[].connectionStatus, bgpFlags:vpnLinkConnections[].enableBgp}" 2>$null | ConvertFrom-Json
 
         if ($connDetail) {
-            $bgpStatus = if ($connDetail.bgp) { 'Enabled' } else { 'Disabled' }
+            $bgpEnabled = $false
+            if ($connDetail.bgpFlags) {
+                $bgpEnabled = @($connDetail.bgpFlags) -contains $true
+            }
+            $bgpStatus = if ($bgpEnabled) { 'Enabled' } else { 'Disabled' }
             $inRM  = if ($connDetail.inRM)  { ($connDetail.inRM  -split '/')[-1] } else { '(none)' }
             $outRM = if ($connDetail.outRM) { ($connDetail.outRM -split '/')[-1] } else { '(none)' }
-            Write-Data "  Status: $($connDetail.status ?? 'Unknown')   BGP: $bgpStatus   InboundRouteMap: $inRM   OutboundRouteMap: $outRM"
+            $linkStateSummary = if ($connDetail.linkStates) { (@($connDetail.linkStates) -join ',') } else { 'Unknown' }
+            Write-Data "  Status: $($connDetail.status ?? 'Unknown')   LinkState: $linkStateSummary   BGP: $bgpStatus   InboundRouteMap: $inRM   OutboundRouteMap: $outRM"
         }
     }
 }
