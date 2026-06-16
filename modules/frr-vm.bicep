@@ -317,14 +317,16 @@ write_files:
         neighbor {5} timers 3 9
         neighbor {5} description TRANSIT-HUB2
         !
-        ! --- STANDARD peer: Hub3 (on-prem only, no transit) ---
+        ! --- TRANSIT peer: Hub3 (full mesh re-advertisement) ---
+        ! Replicates customer ER: the single circuit reflects routes among ALL
+        ! three hubs, so Hub3 also learns sibling spokes via gateway and hairpins.
         !
         ! Hub3 (eastus2) - VPN GW Instance 0
         neighbor {7} remote-as 65515
         neighbor {7} ebgp-multihop 64
         neighbor {7} update-source __LOCAL_IP__
         neighbor {7} timers 3 9
-        neighbor {7} description STANDARD-HUB3
+        neighbor {7} description TRANSIT-HUB3
         !
         address-family ipv4 unicast
           redistribute static
@@ -341,9 +343,11 @@ write_files:
           neighbor {5} route-map TRANSIT_OUT out
           neighbor {5} as-override
           !
-          ! Hub3: accept all, advertise on-prem only (no transit)
+          ! Hub3: accept all, advertise on-prem + transit routes (full mesh)
           neighbor {7} soft-reconfiguration inbound
-          neighbor {7} route-map STANDARD_OUT out
+          neighbor {7} route-map TRANSIT_IN in
+          neighbor {7} route-map TRANSIT_OUT out
+          neighbor {7} as-override
         exit-address-family
       !
       line vty
