@@ -15,6 +15,7 @@
 - [Extended Scenarios - Hub Routing Preference and AS-Path Prepend](#extended-scenarios--hub-routing-preference-and-as-path-prepend)
 - [FRR Router Commands](#frr-router-commands)
 - [PowerShell Scripts Reference](#powershell-scripts-reference)
+- [Azure Firewall Operations (Hub SKU)](#azure-firewall-operations-hub-sku)
 - [Key Azure Concepts Demonstrated](#key-azure-concepts-demonstrated)
 - [Cost & Cleanup](#cost--cleanup)
 - [Related](#related)
@@ -39,17 +40,13 @@
 
 ## TL;DR
 
-When an on-premises FRR/strongSwan router advertises Azure spoke prefixes learned from one vWAN hub back into a second hub via VPN+BGP, the receiving hub treats those as VPN gateway-learned routes. Because vWAN prefers gateway-learned routes over inter-hub (Remote Hub) backbone routes, the inter-hub backbone path is overridden. This lab demonstrates the behavior across three hubs and provides tooling to test Hub Routing Preference modes and AS-path manipulation to control path selection.
+**Customer scenario:** a Virtual WAN with three hubs, all connected to a **single ExpressRoute circuit**. The circuit's MSEE reflects each hub's spoke prefixes to the other hubs, so every hub learns its siblings' spokes via its own (local) ER gateway. Because vWAN's route selection prefers **local gateway connections over inter-hub (Remote Hub) backbone routes** — and this happens at the *default* `ExpressRoute` Hub Routing Preference, with no setting changed — hub-to-hub traffic **hairpins out through ER** instead of staying on the vWAN backbone.
 
----
+This lab reproduces that behavior using **VPN + two FRR/strongSwan routers** in place of the ER circuit (the FRR re-advertisement simulates MSEE route reflection), then demonstrates the fix: an inbound **Route Map** that keeps ER/VPN for on-prem connectivity but moves hub-to-hub back onto the backbone. See [Recommended Fix](#recommended-fix--azure-route-map-on-the-er-connections).
 
-> **Lab Purpose**: Reproduce and explore how BGP transit via VPN S2S connections influences inter-hub route selection in Azure Virtual WAN. Tests include:
-> - VPN gateway-learned route override of inter-hub backbone paths
-> - Hub Routing Preference: `ExpressRoute` / `VpnGateway` / `ASPath`
-> - AS-path prepending (FRR-side and Azure hub Route Maps) to restore Remote Hub paths
-> - Selective transit, asymmetric re-advertisement, and per-hub path control
+> **Also covered:** Hub Routing Preference modes (`ExpressRoute` / `VpnGateway` / `ASPath`), AS-path prepending (FRR-side and Azure Route Maps), and selective/asymmetric transit for per-hub path control.
 
-This lab uses two on-prem FRRouting/strongSwan VMs as transit routers. The current deployment keeps one active VPN connection per hub (`conn-er-path`, `conn-er-path-hub2`, `conn-er-path-hub3`) and removes backup VPN connections.
+This lab uses two on-prem FRRouting/strongSwan VMs as transit routers, with one active VPN connection per hub (`conn-er-path`, `conn-er-path-hub2`, `conn-er-path-hub3`).
 
 ## Architecture Overview
 
@@ -57,11 +54,15 @@ This lab uses two on-prem FRRouting/strongSwan VMs as transit routers. The curre
 
 ### FRR Transit Behavior
 
+The FRR routers re-advertise every hub's spokes to the other hubs, faithfully replicating a **single ExpressRoute circuit connected to all three hubs** — where the circuit's MSEE reflects each hub's routes to its siblings, so all three hubs learn cross-hub spokes via their own (local) gateway and hairpin inter-hub traffic through ER.
+
 | Hub | FRR Peer Role | BGP Outbound Policy |
 |-----|---------------|---------------------|
-| Hub1 (westus) | **TRANSIT** | On-prem `10.0.0.0/16` + re-advertised Azure routes from Hub2 |
-| Hub2 (westus3) | **TRANSIT** | On-prem `10.0.0.0/16` + re-advertised Azure routes from Hub1 |
-| Hub3 (eastus2) | **STANDARD** | On-prem `10.0.0.0/16` only (no transit re-advertisement) |
+| Hub1 (westus) | **TRANSIT** | On-prem `10.0.0.0/16` + re-advertised Azure routes from Hub2 + Hub3 |
+| Hub2 (westus3) | **TRANSIT** | On-prem `10.0.0.0/16` + re-advertised Azure routes from Hub1 + Hub3 |
+| Hub3 (eastus2) | **TRANSIT** | On-prem `10.0.0.0/16` + re-advertised Azure routes from Hub1 + Hub2 |
+
+> **Control variant:** Hub3 can be returned to **STANDARD** (`STANDARD_OUT` route-map — on-prem only, no transit) to act as a known-good backbone control that contrasts the overriding Hub1/Hub2. Several scenarios below use that variant; the default deployment now makes all three hubs transit to match the customer.
 
 ### IP Address Summary
 
@@ -109,12 +110,13 @@ The same happens in reverse: Hub1 sees Hub2's spoke routes via VPN Gateway inste
 
 | Destination | Hub1 Expected | Hub1 Actual | Hub2 Expected | Hub2 Actual | Hub3 Expected | Hub3 Actual |
 |---|---|---|---|---|---|---|
-| `10.32.4.0/22` (spoke3) | RemoteHub | **VPN GW** | Direct | Direct | RemoteHub | RemoteHub |
-| `10.32.8.0/22` (spoke4) | RemoteHub | **VPN GW** | Direct | Direct | RemoteHub | RemoteHub |
-| `10.16.4.0/22` (spoke1) | Direct | Direct | RemoteHub | **VPN GW** | RemoteHub | RemoteHub |
-| `10.16.8.0/22` (spoke2) | Direct | Direct | RemoteHub | **VPN GW** | RemoteHub | RemoteHub |
+| `10.32.4.0/22` (spoke3) | RemoteHub | **VPN GW** | Direct | Direct | RemoteHub | **VPN GW** |
+| `10.32.8.0/22` (spoke4) | RemoteHub | **VPN GW** | Direct | Direct | RemoteHub | **VPN GW** |
+| `10.16.4.0/22` (spoke1) | Direct | Direct | RemoteHub | **VPN GW** | RemoteHub | **VPN GW** |
+| `10.16.8.0/22` (spoke2) | Direct | Direct | RemoteHub | **VPN GW** | RemoteHub | **VPN GW** |
+| `10.48.4.0/22` (spoke5) | RemoteHub | **VPN GW** | RemoteHub | **VPN GW** | Direct | Direct |
 
-Hub3 is unaffected because the FRR VMs only apply `STANDARD_OUT` route-map to Hub3 peers (on-prem prefix only, no transit re-advertisement). Hub3 behaves normally because the FRR routers do not re-advertise Azure prefixes toward that hub, so it only learns spoke routes via the vWAN backbone (Remote Hub).
+All three hubs hairpin: the FRR routers apply `TRANSIT_OUT` to every hub peer, so each hub learns its siblings' spokes as `VPN_S2S_Gateway` routes (the simulated-ER local gateway) and prefers them over the `Remote Hub` backbone path. This matches a customer whose single ER circuit reflects routes among all hubs.
 
 ### Portal Evidence — Hub Effective Routes
 
@@ -126,7 +128,7 @@ Hub3 is unaffected because the FRR VMs only apply `STANDARD_OUT` route-map to Hu
 
 ![Hub2 Effective Routes](image/Hub2-Effective-Routes.png)
 
-**Hub3 (STANDARD)** — all remote spoke routes correctly learned via Remote Hub:
+**Hub3 (TRANSIT)** — in the customer-faithful default, Hub3 also learns sibling spokes via VPN Gateway and hairpins. (The image below shows the **STANDARD control variant**, where Hub3 learns all remote spokes via Remote Hub — the desired post-fix end state.)
 
 ![Hub3 Effective Routes](image/Hub3-Effective-Routes.png)
 
@@ -136,9 +138,9 @@ The issue occurs when on-premises BGP advertises Azure prefixes learned from one
 
 When the hub learns the same destination prefix via both VPN gateway and Remote Hub, Virtual WAN route selection applies: **Longest Prefix Match** first, then preference for **local virtual hub connections over routes learned from a remote hub**, and then the selected **Hub Routing Preference**. With equal prefix lengths and a gateway-learned route that is considered local to the hub, the VPN gateway route wins — even though the vWAN backbone provides a more direct path.
 
-> **Note:** The default Hub Routing Preference is `ExpressRoute`. The available modes are **ExpressRoute** (default), **VPN**, and **AS Path**. In AS Path mode, vWAN prefers the route with the shortest BGP AS-path rather than simply preferring a gateway type. However, changing the hubs to AS Path does **not** necessarily eliminate gateway-learned route override — if the AS-path length of the VPN-learned route is equal to or shorter than the Remote Hub path, the gateway-learned route still wins. In this lab, the FRR transit router strips ASN 65515 with `as-path exclude`, making the VPN-learned path shorter than the inter-hub backbone path (65520-65520), so the override occurs regardless of the Hub Routing Preference setting.
+> **Note:** Because the "local connections over remote hub" rule fires *before* the Hub Routing Preference tiebreak, the override happens at the **default `ExpressRoute` HRP** — the customer changes nothing. Switching to `AS Path` HRP does **not** reliably fix it either: the lab's FRR strips ASN 65515 with `as-path exclude`, making the gateway path (shorter) still win over the inter-hub backbone path (`65520 65520`). This is why the durable fix is dropping the cross-hub prefixes at ingress (Route Map), not tuning HRP.
 
-This behavior is expected in Virtual WAN when a prefix is learned from multiple sources and one path is learned through a gateway. It is not a defect — it is a consequence of route selection design.
+This is expected Virtual WAN behavior, not a defect — a consequence of route selection design.
 
 ### Route Flow
 
@@ -146,18 +148,26 @@ This behavior is expected in Virtual WAN when a prefix is learned from multiple 
 
 ## Mitigation Options
 
-Prevent Azure-learned routes from being re-advertised back into Azure. Common approaches include:
+The goal is the same in every case: stop the cross-hub (Azure spoke) prefixes from being learned via the gateway, so each hub falls back to the **Remote Hub** backbone for inter-hub traffic — **while still using ER/VPN for genuine on-prem connectivity**. Approaches, fastest to most thorough:
 
-- **BGP outbound filtering** on the on-premises router — deny Azure VNet prefixes in export policy
-- **AS-path filtering** — reject routes containing ASN 65515 from being re-advertised
-- **Prefix lists** — explicitly block Azure spoke prefixes (for this deployment: `10.16.4.0/22`, `10.16.8.0/22`, `10.32.4.0/22`, `10.32.8.0/22`, `10.48.4.0/22`, `10.48.8.0/22`) from outbound advertisements to other hubs
-- **Route-maps** — apply deny rules for Azure-learned prefixes on specific BGP neighbors
-- **Hub routing preference** — AS Path mode may help if the Remote Hub path has a shorter AS-path than the VPN-transited path, but it does **not** resolve all cases (e.g., when `as-path exclude` makes the VPN path shorter)
-- **vWAN Route Maps** — apply Route Maps on the hub to drop or modify unwanted inbound routes at the hub level (useful when you can't control the on-prem device)
+| Where | Action | Notes |
+|-------|--------|-------|
+| On-prem router (if you own it) | Deny Azure VNet prefixes in the BGP export policy toward each hub | Cleanest at the source. In the lab: FRR `STANDARD_OUT`. |
+| Azure hub (recommended when on-prem can't be changed) | Inbound **vWAN Route Map** on the ER/VPN connection that **drops** the Azure spoke prefixes, permits on-prem | HRP-independent — works at the default `ExpressRoute` HRP. See [Recommended Fix](#recommended-fix--azure-route-map-on-the-er-connections) below. |
+| Azure hub | Hub Routing Preference = **AS Path** + AS-path prepend the on-prem routes | Only works if the prepended VPN/ER path becomes *longer* than the Remote Hub path (`65520 65520`). Does **not** help when the on-prem path is already shorter. |
 
-The recommended fix is filtering at the source (on-prem router) to ensure hubs use the intended Remote Hub route over the vWAN backbone.
+### Recommended Fix — Azure Route Map on the ER connections
 
-> **Official reference:** [How to configure Route Maps — Virtual WAN](https://learn.microsoft.com/azure/virtual-wan/route-maps-how-to) documents the supported Route Maps actions including `Drop`, `Add`, and `Replace` for AS-path, community, and next-hop manipulation. Route Maps are the Azure-side fix when on-prem filtering isn't feasible.
+For the customer (single ER circuit → 3 hubs, no access to change on-prem advertisement), apply an **inbound Route Map on each hub's ExpressRoute connection** that drops the reflected Azure spoke prefixes and permits the real on-prem ranges. Each hub then has no local gateway route for its siblings' spokes and uses the vWAN backbone for hub-to-hub — **ER keeps carrying on-prem traffic untouched.**
+
+Two flavors (both HRP-independent, both demonstrated in [Scenario 11/12](#scenario-11-azure-route-maps--drop-transit-routes-hrp-independent)):
+
+- **DROP (Scenario E) — recommended.** Deny the Azure spoke prefixes, permit everything else. In production, deny the **Azure supernet** (e.g. `10.16.0.0/12`) rather than enumerating each `/22` so new spokes/hubs are auto-covered.
+- **FILTER (Scenario F).** Permit only the on-prem ranges, deny all else (deny-by-default).
+
+**Why DROP over FILTER:** the failure mode if the list is ever incomplete. With DROP, a forgotten Azure prefix merely hairpins again — *degraded routing*. With FILTER, a forgotten legitimate on-prem prefix is black-holed — *an outage*. Prefer the option whose mistake mode is degradation, not outage. Reserve FILTER for when you genuinely cannot enumerate on-prem ranges and want strict deny-by-default.
+
+> **Official reference:** [How to configure Route Maps — Virtual WAN](https://learn.microsoft.com/azure/virtual-wan/route-maps-how-to) documents the supported actions (`Drop`, `Add`, `Replace`) and confirms Route Maps apply to ExpressRoute, VPN, and VNet connections.
 
 ## Why Two VMs?
 
@@ -768,6 +778,64 @@ Start-Sleep -Seconds 90
 .\scripts\compare-routes.ps1 -Snapshot -SnapshotFile after.json
 .\scripts\compare-routes.ps1 -Compare -Before before.json -After after.json
 ```
+
+## Azure Firewall Operations (Hub SKU)
+
+Use these commands when pausing/resuming this lab with `-EnableFirewall`.
+
+### Deallocate all hub firewalls in this lab
+
+```powershell
+$rg = "vwan-bgp-interhub-lab"
+Get-AzFirewall -ResourceGroupName $rg | ForEach-Object {
+   $_.Deallocate()
+   Set-AzFirewall -AzureFirewall $_ | Out-Null
+}
+```
+
+### Allocate all hub firewalls (re-attach each firewall to its matching hub)
+
+This mapping assumes firewall names follow the pattern `<hub-name>-azfw`.
+
+```powershell
+$ErrorActionPreference = "Stop"
+$rg = "vwan-bgp-interhub-lab"
+
+$hubsByName = @{}
+Get-AzVirtualHub -ResourceGroupName $rg | ForEach-Object { $hubsByName[$_.Name] = $_ }
+
+Get-AzFirewall -ResourceGroupName $rg | ForEach-Object {
+   $fw = $_
+   $expectedHubName = $fw.Name -replace '-azfw$',''
+   if (-not $hubsByName.ContainsKey($expectedHubName)) {
+      throw "Missing virtual hub $expectedHubName for firewall $($fw.Name)"
+   }
+
+   $currentHubName = if ($fw.VirtualHub -and $fw.VirtualHub.Id) { ($fw.VirtualHub.Id -split '/')[-1] } else { '' }
+   if ($currentHubName -ne $expectedHubName) {
+      $sub = New-Object Microsoft.Azure.Management.Network.Models.SubResource
+      $sub.Id = $hubsByName[$expectedHubName].Id
+      $fw.Allocate($sub)
+      Set-AzFirewall -AzureFirewall $fw | Out-Null
+   }
+}
+```
+
+### Verify allocation state
+
+```powershell
+Get-AzFirewall -ResourceGroupName "vwan-bgp-interhub-lab" |
+Select-Object Name, ProvisioningState,
+@{N='SecuredVirtualHubName';E={ if ($_.VirtualHub -and $_.VirtualHub.Id) { ($_.VirtualHub.Id -split '/')[-1] } else { '' } }} |
+Sort-Object Name | Format-Table -AutoSize
+```
+
+Expected when allocated: non-empty `SecuredVirtualHubName` and `ProvisioningState = Succeeded`.
+
+### Known behavior and transient errors
+
+- The portal can still show a Public IP value on the firewall blade even after deallocation. For Hub SKU, trust attachment/state fields (`VirtualHub`, `IpConfigurations`, `ManagementIpConfiguration`, and `ProvisioningState`) rather than only the Public IP line.
+- If you get `AnotherOperationInProgress (409)`, wait and retry. Azure Firewall operations are long-running and can conflict if another update is still in progress.
 
 ## Key Azure Concepts Demonstrated
 
