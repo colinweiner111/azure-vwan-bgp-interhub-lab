@@ -397,12 +397,12 @@ if (-not $firewalls -or $firewalls.Count -eq 0) {
         if ($hubName) {
             $routingIntent = az network vhub routing-intent show `
                 --resource-group $ResourceGroupName `
-                --vhub-name $hubName `
+                --vhub $hubName `
                 --name 'RoutingIntent' 2>$null | ConvertFrom-Json
             if ($routingIntent) {
                 Write-OK "Routing Intent configured on hub $hubName"
-                Write-Data "  Private routing policy: $($routingIntent.properties.routingPolicies | Where-Object {$_.name -eq 'PrivateTraffic'} | Select-Object -ExpandProperty destinations -First 1)"
-                Write-Data "  Internet routing policy: $($routingIntent.properties.routingPolicies | Where-Object {$_.name -eq 'PublicTraffic'} | Select-Object -ExpandProperty destinations -First 1)"
+                Write-Data "  Private routing policy: $($routingIntent.routingPolicies | Where-Object {$_.destinations -contains 'PrivateTraffic'} | Select-Object -ExpandProperty nextHop -First 1)"
+                Write-Data "  Internet routing policy: $($routingIntent.routingPolicies | Where-Object {$_.destinations -contains 'Internet'} | Select-Object -ExpandProperty nextHop -First 1)"
             } else {
                 Write-Warn "No Routing Intent policy found on hub $hubName (traffic may not route through firewall)"
             }
