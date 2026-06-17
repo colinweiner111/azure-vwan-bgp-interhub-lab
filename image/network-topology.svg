@@ -1,4 +1,4 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="1800" height="1100" viewBox="0 0 1800 1100">
+<svg xmlns="http://www.w3.org/2000/svg" width="1800" height="980" viewBox="0 0 1800 980">
   <defs>
     <style>
       .note { font: 600 24px 'Comic Sans MS','Segoe Print','Bradley Hand',cursive; fill: #222b3a; }
@@ -14,7 +14,7 @@
     </marker>
   </defs>
 
-  <rect x="0" y="0" width="1800" height="1100" fill="#e8eaee"/>
+  <rect x="0" y="0" width="1800" height="980" fill="#e8eaee"/>
 
   <text x="900" y="44" text-anchor="middle" class="note">Azure vWAN Inter-Hub Lab3 - ER Simulation via S2S VPN + BGP</text>
 
@@ -99,29 +99,14 @@
     <text x="1380" y="668" text-anchor="middle">conn-er-path-hub3</text>
   </g>
 
-  <!-- On-prem nodes -->
+  <!-- On-prem edge (single FRR router = the ER circuit) -->
   <g fill="#d9d9d9" stroke="#5b5b5b" stroke-width="2.2">
     <rect x="290" y="830" width="260" height="92"/>
-    <rect x="770" y="830" width="260" height="92"/>
-    <rect x="1010" y="960" width="260" height="92"/>
   </g>
   <g class="body">
     <text x="420" y="866" text-anchor="middle">frr-router</text>
     <text x="420" y="894" text-anchor="middle">10.0.0.10</text>
-
-    <text x="900" y="866" text-anchor="middle">frr-router-backup</text>
-    <text x="900" y="894" text-anchor="middle">10.0.0.11</text>
-
-    <text x="1140" y="996" text-anchor="middle">onprem-vm</text>
-    <text x="1140" y="1024" text-anchor="middle">10.0.1.10</text>
   </g>
-
-  <!-- On-prem links -->
-  <g class="ink" fill="none" stroke-width="2.2">
-    <path d="M550 876 C620 876, 700 876, 770 876"/>
-    <path d="M1030 876 C1080 900, 1110 930, 1140 960"/>
-  </g>
-  <text x="800" y="914" text-anchor="middle" class="body" fill="#4d5d78">On-prem LAN</text>
 
   <!-- S2S/BGP dashed arrows -->
   <g fill="none" stroke="#6a4ea4" stroke-width="2.2" stroke-dasharray="6 6" marker-end="url(#arrowPurple)">
