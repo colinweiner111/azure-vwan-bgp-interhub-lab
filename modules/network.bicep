@@ -24,11 +24,11 @@ param hub3Location string
 
 @description('Hub Routing Preference for Hub1: ExpressRoute | VpnGateway | ASPath')
 @allowed(['ExpressRoute', 'VpnGateway', 'ASPath'])
-param hub1RoutingPreference string = 'VpnGateway'
+param hub1RoutingPreference string = 'ExpressRoute'
 
 @description('Hub Routing Preference for Hub2: ExpressRoute | VpnGateway | ASPath')
 @allowed(['ExpressRoute', 'VpnGateway', 'ASPath'])
-param hub2RoutingPreference string = 'VpnGateway'
+param hub2RoutingPreference string = 'ExpressRoute'
 
 @description('Hub Routing Preference for Hub3: ExpressRoute | VpnGateway | ASPath')
 @allowed(['ExpressRoute', 'VpnGateway', 'ASPath'])

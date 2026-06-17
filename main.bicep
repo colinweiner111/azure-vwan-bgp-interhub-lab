@@ -76,13 +76,13 @@ param firewallSku string = 'Standard'
 // VpnGateway   = VPN gateway-learned routes override inter-hub backbone
 // ASPath        = shortest BGP AS-path wins (regardless of route type)
 // =============================================================================
-@description('Hub Routing Preference for Hub1 (westus). VpnGateway causes VPN-learned routes to override Remote Hub. ASPath picks shortest path.')
+@description('Hub Routing Preference for Hub1 (westus). ExpressRoute is the Azure default; the local-connection-beats-remote-hub rule still overrides Remote Hub at this setting. VpnGateway/ASPath also available.')
 @allowed(['ExpressRoute', 'VpnGateway', 'ASPath'])
-param hub1RoutingPreference string = 'VpnGateway'
+param hub1RoutingPreference string = 'ExpressRoute'
 
-@description('Hub Routing Preference for Hub2 (westus3). VpnGateway causes VPN-learned routes to override Remote Hub. ASPath picks shortest path.')
+@description('Hub Routing Preference for Hub2 (westus3). ExpressRoute is the Azure default; the local-connection-beats-remote-hub rule still overrides Remote Hub at this setting. VpnGateway/ASPath also available.')
 @allowed(['ExpressRoute', 'VpnGateway', 'ASPath'])
-param hub2RoutingPreference string = 'VpnGateway'
+param hub2RoutingPreference string = 'ExpressRoute'
 
 @description('Hub Routing Preference for Hub3 (eastus2). ExpressRoute = control-plane baseline (no VPN transit override). ASPath demonstrates path-length selection.')
 @allowed(['ExpressRoute', 'VpnGateway', 'ASPath'])
