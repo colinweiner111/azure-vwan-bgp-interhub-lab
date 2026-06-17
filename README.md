@@ -5,6 +5,7 @@ Reproduces — and fixes — the **ExpressRoute inter-hub hairpin** in Azure Vir
 ## Table of Contents
 
 - [TL;DR](#tldr)
+- [Expected Results](#expected-results)
 - [Architecture](#architecture)
 - [Why Inter-Hub Traffic Hairpins](#why-inter-hub-traffic-hairpins)
 - [The Solution — Route Maps](#the-solution--route-maps)
@@ -13,6 +14,7 @@ Reproduces — and fixes — the **ExpressRoute inter-hub hairpin** in Azure Vir
 - [Lab Scenarios](#lab-scenarios)
 - [PowerShell Scripts Reference](#powershell-scripts-reference)
 - [Operations — Firewall Pause/Resume & Cost](#operations--firewall-pauseresume--cost)
+- [Cleanup](#cleanup)
 - [Concepts, Related, References](#concepts-related-references)
 
 ## TL;DR
@@ -20,6 +22,24 @@ Reproduces — and fixes — the **ExpressRoute inter-hub hairpin** in Azure Vir
 **Scenario:** a Virtual WAN with three hubs, all connected to a **single ExpressRoute circuit**. The circuit's MSEE reflects each hub's spoke prefixes to the other hubs, so every hub learns its siblings' spokes via its own (local) ER gateway. Because vWAN's route selection prefers **local gateway connections over inter-hub (Remote Hub) backbone routes** — and this happens at the *default* `ExpressRoute` Hub Routing Preference, with no setting changed — hub-to-hub traffic **hairpins out through ER** instead of staying on the vWAN backbone.
 
 This lab reproduces that behavior using **VPN + FRR/strongSwan router** in place of the ER circuit (the FRR re-advertisement simulates MSEE route reflection), then demonstrates the fix: an inbound **Route Map** that keeps ER/VPN for on-prem connectivity but moves hub-to-hub back onto the backbone.
+
+## Expected Results
+
+A quick pass/fail checklist. **All three hubs are transit hubs** in this lab — every hub learns its siblings' spokes via its own gateway, so every hub hairpins. (There is no "control" hub; that earlier design was retired to match the customer's single-ER-reflects-to-all-3 reality.)
+
+**Before the fix (default `ExpressRoute` HRP, no route maps):**
+
+- Each hub prefers its siblings' spoke prefixes via its **local `VPN_S2S_Gateway`** instead of `Remote Hub` — i.e. inter-hub traffic hairpins out through the ER/VPN path on **all three** hubs.
+- A ping between spokes in different hubs shows **`ttl=61`** (extra L3 hop through the FRR ER-mimic).
+- On-prem `10.0.0.0/16` is reachable via the gateway (as intended).
+
+**After the fix (inbound Route Map — [Scenario 3](#3-apply-the-fix--route-maps-drop--filter)):**
+
+- Each hub's cross-hub spoke prefixes flip to **`Remote Hub`** (vWAN backbone) on **all three** hubs — the hairpin is gone.
+- The same inter-hub ping shows **`ttl=62`** (one fewer hop).
+- On-prem `10.0.0.0/16` **stays on `VPN_S2S_Gateway`** — the fix only removes the reflected Azure spokes, never on-prem connectivity.
+
+> With `-EnableRoutingIntent`, per-spoke next-hops are masked (effective routes collapse to firewall aggregates) — use the **TTL signal** as the pass/fail check in that case. See the [Routing Intent caveat](#2-observe-the-hairpin-gateway-override).
 
 ## Architecture
 
@@ -130,6 +150,11 @@ az network vhub get-effective-routes -g $rg -n hub1-westus `
 
 > **Routing Intent caveat:** with `-EnableRoutingIntent`, the hub effective-route table collapses to aggregates pointing at the firewall, so per-spoke next-hops are hidden. Use the **TTL method** (Scenario 1) to prove the flip in that case.
 
+**Before the fix** — portal effective routes showing the cross-hub spokes pointing at `VPN_S2S_Gateway` (the smoking gun):
+
+<!-- TODO: capture from a NON-RoutingIntent run (per-spoke next-hops visible). Hub1 → conn-spoke1 effective routes; circle the 10.32.4.0/22 / 10.48.4.0/22 rows showing VPN_S2S_Gateway. -->
+<a href="image/effective-before.png"><img src="image/effective-before.png" alt="Effective routes before fix — cross-hub spokes via VPN_S2S_Gateway (hairpin)" width="1260"></a>
+
 ### 3. Apply the fix — Route Maps (DROP / FILTER)
 
 ```powershell
@@ -171,6 +196,11 @@ Then **Apply Route-maps to connections** — set it as the **inbound** route map
 After applying, the connection shows the inbound route map attached:
 
 <a href="image/routemap05.png"><img src="image/routemap05.png" alt="Inbound route map attached to the connection" width="1268"></a>
+
+**After the fix** — the same effective-route view, with the cross-hub spokes now flipped to `Remote Hub` (backbone restored) while on-prem `10.0.0.0/16` stays on `VPN_S2S_Gateway`:
+
+<!-- TODO: capture from the SAME hub/connection as effective-before.png, after Scenario E. Circle the same 10.32.4.0/22 / 10.48.4.0/22 rows now showing Remote Hub. -->
+<a href="image/effective-after.png"><img src="image/effective-after.png" alt="Effective routes after fix — cross-hub spokes via Remote Hub (backbone)" width="1260"></a>
 
 **Toggle one hub manually (portal or CLI)** to contrast a hairpinning hub against fixed ones — detach keeps the map resource so re-attach skips the 45-min creation:
 
@@ -284,11 +314,15 @@ Get-AzFirewall -ResourceGroupName $rg | Select-Object Name, ProvisioningState,
   @{N='Hub';E={ ($_.VirtualHub.Id -split '/')[-1] }} | Format-Table -AutoSize
 ```
 
-**Cost:** 3 vWAN VPN Gateways (~$2.17/hr total) + 9 B2s VMs + public IPs + hub fees ≈ **$3–4/hr base**; Bastion (~$0.26/hr) and Firewall (~$0.40/hr/hub) add more. VPN gateways can't be stopped — delete and redeploy to pause.
+## Cleanup
+
+Tear down the entire lab — deletes the resource group and everything in it (vWAN, hubs, gateways, firewalls, FRR VMs, on-prem VNet):
 
 ```powershell
 az group delete -n vwan-bgp-interhub-lab --yes --no-wait
 ```
+
+> `--no-wait` returns immediately; deletion of the gateways and hubs continues in the background (~20–30 min). To pause spend without destroying the lab, deallocate the firewalls instead — see [Operations](#operations--firewall-pauseresume--cost). (VPN gateways cannot be deallocated; only full RG deletion stops their cost.)
 
 ## Concepts, Related, References
 
