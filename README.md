@@ -150,25 +150,27 @@ Route-map logic — **DROP:** rule 1 matches the six `/22`s → `Drop` (Terminat
 
 #### Portal walkthrough (what the script builds)
 
+> Click any screenshot to open it full-size (GitHub shrinks wide images to fit the page).
+
 The DROP route map `vpn-drop-transit-azure` has two rules — drop the transit spokes, permit the rest:
 
-<img src="image/routemap01.png" alt="Route map rules" width="1255">
+<a href="image/routemap01.png"><img src="image/routemap01.png" alt="Route map rules" width="1255"></a>
 
 **Rule 1** (`rule1-drop-azure-spoke-transit`): match `RoutePrefix Contains` the six spoke `/22`s, action **Drop**, next step **Terminate**:
 
-<img src="image/routemap02.png" alt="Drop rule — prefix match and Drop action" width="1261">
+<a href="image/routemap02.png"><img src="image/routemap02.png" alt="Drop rule — prefix match and Drop action" width="1261"></a>
 
 **Rule 2** (`rule2-permit-rest`): no match conditions (so it matches everything else — i.e. on-prem), next step **Continue** — i.e. permit:
 
-<img src="image/routemap03.png" alt="Permit-rest rule" width="1266">
+<a href="image/routemap03.png"><img src="image/routemap03.png" alt="Permit-rest rule" width="1266"></a>
 
 Then **Apply Route-maps to connections** — set it as the **inbound** route map on the hub's `conn-er-path-*` connection. Note it's the **VPN/ER (branch) connection**, *not* the VNet/spoke connections (`conn-spoke*`):
 
-<img src="image/routemap04.png" alt="Apply route map to the branch connection" width="1264">
+<a href="image/routemap04.png"><img src="image/routemap04.png" alt="Apply route map to the branch connection" width="1264"></a>
 
 After applying, the connection shows the inbound route map attached:
 
-<img src="image/routemap05.png" alt="Inbound route map attached to the connection" width="1268">
+<a href="image/routemap05.png"><img src="image/routemap05.png" alt="Inbound route map attached to the connection" width="1268"></a>
 
 **Toggle one hub manually (portal or CLI)** to contrast a hairpinning hub against fixed ones — detach keeps the map resource so re-attach skips the 45-min creation:
 
