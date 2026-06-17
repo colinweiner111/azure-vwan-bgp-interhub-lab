@@ -335,7 +335,7 @@ if ($Scenario -eq 'E') {
                 $conns = az network vpn-gateway connection list `
                     --resource-group $ResourceGroupName `
                     --gateway-name $hubGw.name `
-                    --query "[?enableBgp==\`true\`].name" 2>$null | ConvertFrom-Json
+                    --query "[?vpnLinkConnections[?enableBgp==\`true\`]].name" 2>$null | ConvertFrom-Json
 
                 foreach ($connName in $conns) {
                     if ($ConnectionFilter -and $connName -notlike "*$ConnectionFilter*") { continue }
@@ -464,7 +464,7 @@ if ($Scenario -eq 'F') {
                 $conns = az network vpn-gateway connection list `
                     --resource-group $ResourceGroupName `
                     --gateway-name $hubGw.name `
-                    --query "[?enableBgp==\`true\`].name" 2>$null | ConvertFrom-Json
+                    --query "[?vpnLinkConnections[?enableBgp==\`true\`]].name" 2>$null | ConvertFrom-Json
 
                 foreach ($connName in $conns) {
                     if ($ConnectionFilter -and $connName -notlike "*$ConnectionFilter*") { continue }
@@ -601,7 +601,7 @@ foreach ($hub in ($hubs | Sort-Object name)) {
             $conns = az network vpn-gateway connection list `
                 --resource-group $ResourceGroupName `
                 --gateway-name $hubGw.name `
-                --query "[?enableBgp==\`true\`].name" 2>$null | ConvertFrom-Json
+                --query "[?vpnLinkConnections[?enableBgp==\`true\`]].name" 2>$null | ConvertFrom-Json
 
             foreach ($connName in $conns) {
                 if ($ConnectionFilter -and $connName -notlike "*$ConnectionFilter*") { continue }
