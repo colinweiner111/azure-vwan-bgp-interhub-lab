@@ -258,9 +258,12 @@ if ($Scenario -eq 'E') {
 
     $dropRouteMapName = 'vpn-drop-transit-azure'
 
-    # Route map rules:
+    # Route map rules — a single rule is sufficient:
     #   Rule 1: Match any Azure spoke prefix → Drop (Terminate)
-    #   Rule 2: Everything else (on-prem 10.0.0.0/16) → Continue (permit)
+    #   On-prem (10.0.0.0/16) doesn't match, so it's permitted by Azure's
+    #   default: "when no rule is matched, the default is to allow, not to deny"
+    #   (https://learn.microsoft.com/azure/virtual-wan/route-maps-about).
+    #   No explicit permit-rest rule is needed.
     $dropRulesJson = @"
 [
   {
@@ -275,12 +278,6 @@ if ($Scenario -eq 'E') {
       { "type": "Drop" }
     ],
     "nextStepIfMatched": "Terminate"
-  },
-  {
-    "name": "rule2-permit-rest",
-    "matchCriteria": [],
-    "actions": [],
-    "nextStepIfMatched": "Continue"
   }
 ]
 "@

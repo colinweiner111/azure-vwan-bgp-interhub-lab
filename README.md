@@ -73,7 +73,7 @@ Stop the cross-hub spoke prefixes from being learned via the gateway, so each hu
 
 Two flavors (both HRP-independent — work at the default `ExpressRoute` HRP):
 
-- **DROP — recommended ([Scenario 3](#3-apply-the-fix--route-maps-drop--filter)).** Deny the Azure spoke prefixes, permit everything else. In production, deny the **Azure supernet** (e.g. `10.16.0.0/12`) rather than each `/22`, so new spokes/hubs are auto-covered.
+- **DROP — recommended ([Scenario 3](#3-apply-the-fix--route-maps-drop--filter)).** Deny the Azure spoke prefixes; everything else is permitted by Azure's **default-allow** — no explicit permit rule needed. In production, deny the **Azure supernet** (e.g. `10.16.0.0/12`) rather than each `/22`, so new spokes/hubs are auto-covered.
 - **FILTER.** Permit only the on-prem ranges, deny all else (deny-by-default).
 
 **Why DROP over FILTER:** the failure mode if the list is ever incomplete. With DROP, a forgotten Azure prefix merely hairpins again — *degraded routing*. With FILTER, a forgotten on-prem prefix is black-holed — *an outage*. Prefer the option whose mistake mode is degradation, not outage. Reserve FILTER for when you genuinely cannot enumerate on-prem ranges.
@@ -171,23 +171,26 @@ Start-Sleep -Seconds 90
 .\scripts\test-as-path-prepend.ps1 -Scenario D
 ```
 
-Route-map logic — **DROP:** rule 1 matches the six `/22`s → `Drop` (Terminate); rule 2 → `Continue` (permits on-prem). **FILTER:** rule 1 permits `10.0.0.0/16` → Terminate; rule 2 → `Drop`.
+Route-map logic — **DROP:** a single rule matches the six `/22`s → `Drop` (`Terminate`). No permit rule is needed: Microsoft documents that *"when no rule is matched, the default is to allow, not to deny"* ([Route-maps About — Match conditions](https://learn.microsoft.com/en-us/azure/virtual-wan/route-maps-about#match-conditions)), so on-prem (which the rule doesn't match) is passed through automatically. **FILTER:** rule 1 permits `10.0.0.0/16` → `Terminate`; rule 2 → `Drop` — here the catch-all drop **is** required, precisely *because* the default is allow: deny-by-default has to be made explicit.
 
-#### Portal walkthrough (what the script builds)
+#### Portal walkthrough (portal equivalent of Scenario E)
 
 > Click any screenshot to open it full-size (GitHub shrinks wide images to fit the page).
 
-The DROP route map `vpn-drop-transit-azure` has two rules — drop the transit spokes, permit the rest:
+The DROP route map `vpn-drop-transit-azure` needs just **one rule** — drop the transit spokes. There's deliberately no permit rule for on-prem: by Azure's default-allow (cited above), any prefix this rule doesn't match (your on-prem ranges) is passed through automatically.
 
 <a href="image/routemap01.png"><img src="image/routemap01.png" alt="Route map rules" width="1255"></a>
 
-**Rule 1** (`rule1-drop-azure-spoke-transit`): match `RoutePrefix Contains` the six spoke `/22`s, action **Drop**, next step **Terminate**:
+**Rule `rule1-drop-azure-spoke-transit`** — the fields in the **Create Route-map rule** blade:
+
+| Field | Value | What it does |
+|-------|-------|--------------|
+| **Name** | `rule1-drop-azure-spoke-transit` | Identifies the rule within the route-map. |
+| **Next step** | `Terminate` | Ends rule evaluation for routes this rule matches. (With a single rule the choice is moot — it mirrors the screenshot; `Continue` would instead fall through to the next rule.) |
+| **Match conditions** | **Property** `Route prefix` · **Criterion** `Contains` · **Value** the six spoke `/22`s (`10.16.4.0/22, 10.16.8.0/22, …`) | Selects the routes to act on. *A route must pass all match conditions to be selected; if none are configured, all routes match.* |
+| **Action on matched routes** | `Drop` | Drops the matched (transit-spoke) routes. The alternative, `Modify`, would instead rewrite attributes via **Route modifications** (AS-path / community / etc.) — left empty here. |
 
 <a href="image/routemap02.png"><img src="image/routemap02.png" alt="Drop rule — prefix match and Drop action" width="1261"></a>
-
-**Rule 2** (`rule2-permit-rest`): no match conditions (so it matches everything else — i.e. on-prem), next step **Continue** — i.e. permit:
-
-<a href="image/routemap03.png"><img src="image/routemap03.png" alt="Permit-rest rule" width="1266"></a>
 
 Then **Apply Route-maps to connections** — set it as the **inbound** route map on the hub's `conn-er-path-*` connection. Note it's the **VPN/ER (branch) connection**, *not* the VNet/spoke connections (`conn-spoke*`):
 
